@@ -47,6 +47,10 @@ class Entity {
         // Grouping
         this.groupId = null;
 
+        // Crew assignment (for cannon crew system)
+        this.isCrewMember = false;
+        this.assignedCannonId = null;
+
         // Stance system
         this.stance = faction === 'red' ? 'offensive' : 'none'; // Enemies offensive by default, friendlies none
         this.lockedTarget = null; // Entity being tracked by FOV
@@ -2775,6 +2779,24 @@ moveTo(x, y) {
             ctx.setLineDash([]);
         }
         
+        // Draw crew assignment line (magenta dashed) if crew member is selected
+        if (this.isCrewMember && this.assignedCannonId !== null && this.isSelected && !this.isDying) {
+            const cannon = lightCannonManager.cannons.find(c => c.id === this.assignedCannonId);
+            if (cannon && !cannon.isDying) {
+                const cannonScreenX = cannon.x - camera.x;
+                const cannonScreenY = cannon.y - camera.y;
+
+                ctx.strokeStyle = 'rgba(255, 0, 255, 0.6)'; // Magenta
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(screenX, screenY);
+                ctx.lineTo(cannonScreenX, cannonScreenY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
         // Draw melee engagement line (red dashed) if either unit selected
         if (this.isInMelee && this.meleeTarget && !this.meleeTarget.isDying && !this.isDying) {
             if (this.isSelected || this.meleeTarget.isSelected) {
@@ -2988,7 +3010,16 @@ updateAll(deltaTime) {
                 console.log(`Entity ${deadEntity.id} removed from group ${group.id}`);
             }
         }
-        
+
+        // Remove from cannon crew if assigned
+        if (deadEntity.isCrewMember && deadEntity.assignedCannonId !== null) {
+            const cannon = lightCannonManager.cannons.find(c => c.id === deadEntity.assignedCannonId);
+            if (cannon) {
+                cannon.crewIds = cannon.crewIds.filter(id => id !== deadEntity.id);
+                console.log(`Entity ${deadEntity.id} removed from cannon ${cannon.id} crew (died)`);
+            }
+        }
+
         // Remove from entities array
         this.entities = this.entities.filter(e => e.id !== deadEntity.id);
     }

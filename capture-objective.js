@@ -11,11 +11,23 @@ class CaptureObjective {
 
         // Core properties
         this.is_moveable = options.is_moveable ?? false;
-        this.capture_radius = options.capture_radius ?? 50;
-        this.capture_amount = options.capture_amount ?? 5;
-        this.capture_time = options.capture_time ?? 5.0;
         this.objective_name = options.objective_name ?? "None";
         this.objective_type = options.objective_type ?? "none";
+
+        // Apply type-specific defaults
+        if (this.objective_type === 'object') {
+            // Object type: halved radius, 3s capture time, no icon
+            this.capture_radius = options.capture_radius ?? 25;
+            this.capture_time = options.capture_time ?? 3.0;
+            this.showIcon = false;
+        } else {
+            // Default "none" type (flag)
+            this.capture_radius = options.capture_radius ?? 50;
+            this.capture_time = options.capture_time ?? 5.0;
+            this.showIcon = true;
+        }
+
+        this.capture_amount = options.capture_amount ?? 5;
 
         // Ownership and capture state
         this.faction = "none";  // "none", "blue", "red"
@@ -34,10 +46,19 @@ class CaptureObjective {
         this.successAnimationDuration = 1.0;  // 1 second
         this.successAnimationTimer = 0;
 
+        // Linked object (for "object" type objectives bound to cannons, etc.)
+        this.linkedObject = options.linkedObject ?? null;
+
         console.log(`CaptureObjective ${this.id} created: "${this.objective_name}" at (${Math.floor(x)}, ${Math.floor(y)})`);
     }
 
     update(deltaTime, entities) {
+        // Follow linked object's position if bound
+        if (this.linkedObject) {
+            this.x = this.linkedObject.x;
+            this.y = this.linkedObject.y;
+        }
+
         // Count units in capture radius by faction
         let blueCount = 0;
         let redCount = 0;
@@ -115,6 +136,17 @@ class CaptureObjective {
                 this.previousFaction = this.faction;
                 // Reset to neutral when crossing zero during recapture
                 this.faction = 'none';
+
+                // Sync linked object to neutral
+                if (this.linkedObject) {
+                    this.linkedObject.faction = 'none';
+
+                    // If linked object has crew system, clear crew on neutralization
+                    if (this.linkedObject.crewIds !== undefined) {
+                        this.clearLinkedObjectCrew(this.linkedObject);
+                    }
+                }
+
                 console.log(`Objective ${this.id} reset to neutral (was: ${this.previousFaction}, recapture in progress)`);
             }
 
@@ -148,6 +180,18 @@ class CaptureObjective {
         this.faction = newFaction;
         this.previousFaction = 'none';  // Clear previous faction on successful capture
 
+        // Sync faction to linked object (cannon, etc.)
+        if (this.linkedObject) {
+            this.linkedObject.faction = newFaction;
+            console.log(`Linked object ${this.linkedObject.id} faction set to ${newFaction}`);
+
+            // If linked object has crew system, clear old crew and reset cooldown for immediate recruitment
+            if (this.linkedObject.crewIds !== undefined) {
+                this.clearLinkedObjectCrew(this.linkedObject);
+                this.linkedObject.recruitmentCooldown = 0; // Allow immediate recruitment
+            }
+        }
+
         console.log(`Objective ${this.id} "${this.objective_name}" captured by ${newFaction} (was: ${oldFaction})`);
 
         // Start success animation
@@ -175,6 +219,20 @@ class CaptureObjective {
                 console.log(`Unit ${entity.id} distress reduced by 50 (capture success)`);
             }
         }
+    }
+
+    clearLinkedObjectCrew(linkedObject) {
+        // Clear crew status from all assigned entities
+        for (const crewId of linkedObject.crewIds) {
+            const entity = entityManager.getEntity(crewId);
+            if (entity) {
+                entity.isCrewMember = false;
+                entity.assignedCannonId = null;
+                console.log(`Entity ${entity.id} removed from cannon ${linkedObject.id} crew`);
+            }
+        }
+        linkedObject.crewIds = [];
+        console.log(`Cannon ${linkedObject.id} crew cleared`);
     }
 
     // Check if unit should be repelled (for collision)
@@ -262,26 +320,28 @@ class CaptureObjective {
             }
         }
 
-        // Draw objective icon (10x10 square, colored by faction)
-        let iconColor;
-        // Icon stays white during active capture
-        if (this.isCaptureInProgress && Math.abs(this.captureProgress) < 1.0) {
-            iconColor = 'rgb(255, 255, 255)';
-        } else if (this.faction === 'blue') {
-            iconColor = 'rgb(0, 100, 255)';
-        } else if (this.faction === 'red') {
-            iconColor = 'rgb(255, 50, 50)';
-        } else {
-            iconColor = 'rgb(255, 255, 255)';
-        }
+        // Draw objective icon (10x10 square, colored by faction) - skip for "object" type
+        if (this.showIcon) {
+            let iconColor;
+            // Icon stays white during active capture
+            if (this.isCaptureInProgress && Math.abs(this.captureProgress) < 1.0) {
+                iconColor = 'rgb(255, 255, 255)';
+            } else if (this.faction === 'blue') {
+                iconColor = 'rgb(0, 100, 255)';
+            } else if (this.faction === 'red') {
+                iconColor = 'rgb(255, 50, 50)';
+            } else {
+                iconColor = 'rgb(255, 255, 255)';
+            }
 
-        ctx.fillStyle = iconColor;
-        ctx.fillRect(
-            screenX - this.iconSize / 2,
-            screenY - this.iconSize / 2,
-            this.iconSize,
-            this.iconSize
-        );
+            ctx.fillStyle = iconColor;
+            ctx.fillRect(
+                screenX - this.iconSize / 2,
+                screenY - this.iconSize / 2,
+                this.iconSize,
+                this.iconSize
+            );
+        }
 
         // Draw success animation (expanding green circle)
         if (this.successAnimationActive) {

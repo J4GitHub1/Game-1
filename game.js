@@ -353,6 +353,7 @@ const infoTerrainHeight = document.getElementById('infoTerrainHeight');
 const infoDistress = document.getElementById('infoDistress');
 const infoStance = document.getElementById('infoStance');
 const infoMagazine = document.getElementById('infoMagazine');
+const infoCrewStatus = document.getElementById('infoCrewStatus');
 const groupButton = document.getElementById('groupButton');
 const groupTabsContainer = document.getElementById('groupTabsContainer');
 const groupNameWindow = document.getElementById('groupNameWindow');
@@ -429,6 +430,17 @@ function updateUnitInfo() {
             } else {
                 infoSmoke.textContent = '0';
                 infoSmoke.style.color = 'white';
+            }
+        }
+
+        // Crew status display
+        if (infoCrewStatus) {
+            if (entity.isCrewMember && entity.assignedCannonId !== null) {
+                infoCrewStatus.textContent = `Cannon #${entity.assignedCannonId}`;
+                infoCrewStatus.style.color = 'rgb(255, 0, 255)'; // Magenta
+            } else {
+                infoCrewStatus.textContent = 'None';
+                infoCrewStatus.style.color = 'white';
             }
         }
 
@@ -1056,6 +1068,9 @@ function gameLoop() {
     // Update capture objectives
     captureObjectiveManager.updateAll(deltaTime, entityManager.getAllEntities());
 
+    // Update light cannons
+    lightCannonManager.updateAll(deltaTime);
+
     // DRAWING PHASE
     t0 = performance.now();
     drawBackground();
@@ -1116,6 +1131,9 @@ function gameLoop() {
     leaderHaloManager.drawAll(ctx, camera);
     t1 = performance.now();
     timings['Draw halos'] = (t1 - t0).toFixed(2) + 'ms';
+
+    // Draw light cannons
+    lightCannonManager.drawAll(ctx, camera);
 
     // Draw objective cones (O key toggle)
     if (showObjectiveCones) {
@@ -1619,18 +1637,24 @@ canvas.addEventListener('mousedown', (e) => {
         if (objectiveSpawnMode) {
             e.preventDefault();
 
-            const options = {
-                objective_type: objectiveSpawnType,
-                objective_name: objectiveSpawnType === 'none' ? 'Test Objective' : objectiveSpawnType
-            };
-
-            captureObjectiveManager.addObjective(worldX, worldY, options);
+            if (objectiveSpawnType === 'light_cannon') {
+                // Spawn light cannon (automatically creates linked capture objective)
+                lightCannonManager.addCannon(worldX, worldY, 'none');
+                console.log(`Light Cannon spawned at (${Math.floor(worldX)}, ${Math.floor(worldY)})`);
+            } else {
+                // Spawn regular capture objective (flag)
+                const options = {
+                    objective_type: objectiveSpawnType,
+                    objective_name: objectiveSpawnType === 'none' ? 'Flag' : objectiveSpawnType
+                };
+                captureObjectiveManager.addObjective(worldX, worldY, options);
+                console.log(`Objective spawned at (${Math.floor(worldX)}, ${Math.floor(worldY)})`);
+            }
 
             objectiveSpawnMode = false;
             objectiveSpawnType = 'none';
             canvas.style.cursor = 'crosshair';
 
-            console.log(`Objective spawned at (${Math.floor(worldX)}, ${Math.floor(worldY)})`);
             return;
         }
         

@@ -62,11 +62,11 @@ class Explosion {
         // Apply damage, distress, repulsion, and accuracy debuff to entities
         for (const entity of entities) {
             if (entity.isDying) continue;
-            
+
             const dx = entity.x - this.x;
             const dy = entity.y - this.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            
+
             // Check if entity is within explosion radius
             if (distance <= this.radius) {
                 // Calculate falloff using inverse square law
@@ -74,22 +74,22 @@ class Explosion {
                 // At edge (distance=radius): multiplier ≈ 0
                 const normalizedDistance = distance / this.radius; // 0 to 1
                 const falloff = 1 / (1 + normalizedDistance * normalizedDistance * 9); // Inverse square with scaling
-                
+
                 // Apply damage
                 const damage = this.damage * falloff;
                 entity.health -= damage;
                 console.log(`Explosion ${this.id} damaged entity ${entity.id} for ${damage.toFixed(1)} (distance: ${distance.toFixed(1)}px, falloff: ${(falloff * 100).toFixed(0)}%)`);
-                
+
                 // Apply distress
                 const distressIncrease = this.distress * falloff;
                 entity.distress = Math.min(100, entity.distress + distressIncrease);
-                
+
                 // Apply knockback velocity (units will fly through the air)
                 if (distance > 0.1) { // Avoid division by zero
                     const knockbackStrength = 150 * falloff; // Strength based on distance
                     const knockbackX = (dx / distance) * knockbackStrength;
                     const knockbackY = (dy / distance) * knockbackStrength;
-                    
+
                     // Apply knockback using entity's physics system
                     if (typeof entity.applyKnockback === 'function') {
                         entity.applyKnockback(knockbackX, knockbackY);
@@ -99,7 +99,7 @@ class Explosion {
                         entity.y += knockbackY / 10;
                     }
                 }
-                
+
                 // Apply accuracy debuff (3 seconds, stacking)
                 if (typeof entity.accuracyDebuffTimer !== 'undefined') {
                     entity.accuracyDebuffTimer += 3; // Stack by adding 3 seconds
@@ -107,7 +107,27 @@ class Explosion {
                 }
             }
         }
-        
+
+        // Apply damage to cannons (they only take damage from explosions, not gunshots)
+        if (typeof lightCannonManager !== 'undefined') {
+            for (const cannon of lightCannonManager.cannons) {
+                if (cannon.isDying) continue;
+
+                const dx = cannon.x - this.x;
+                const dy = cannon.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance <= this.radius) {
+                    const normalizedDistance = distance / this.radius;
+                    const falloff = 1 / (1 + normalizedDistance * normalizedDistance * 9);
+
+                    const damage = this.damage * falloff;
+                    cannon.takeDamage(damage);
+                    console.log(`Explosion ${this.id} damaged cannon ${cannon.id} for ${damage.toFixed(1)} (distance: ${distance.toFixed(1)}px)`);
+                }
+            }
+        }
+
         // Spawn fires if burn = true
         if (this.burn && typeof fireManager !== 'undefined') {
             const numFires = Math.floor(Math.random() * 4); // 0-3 fires
