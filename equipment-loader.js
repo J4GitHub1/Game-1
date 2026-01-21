@@ -15,7 +15,7 @@ class EquipmentLoader {
         // Define equipment files manually (since you can't scan directories in browser)
         const equipmentFiles = {
             melee: ['sabre.js', 'lance.js'],
-            ranged: ['rifle.js', 'brown_bess.js', 'springfield.js', 'sharps.js', 'fire_rifle.js', 'magazine_rifle.js', 'burstgun.js', 'shotgun.js', 'fire_shotgun.js'],
+            ranged: ['rifle.js', 'brown_bess.js', 'springfield.js', 'sharps.js', 'fire_rifle.js', 'magazine_rifle.js', 'burstgun.js', 'shotgun.js', 'fire_shotgun.js', 'samppa_gun.js'],
             armor: ['light_armor.js', 'heavy_armor.js']
         };
 
