@@ -274,6 +274,12 @@ let formationMoveAngle = 0;
 let isFormationMoving = false;
 let formationMoveIsValid = true;
 
+// Cannon movement with arrows
+let cannonMoveDistance = 0;
+let cannonMoveAngle = 0;
+let isCannonMoving = false;
+let cannonMoveIsValid = true;
+
 // Keyboard state
 const keys = {};
 
@@ -354,6 +360,17 @@ const infoDistress = document.getElementById('infoDistress');
 const infoStance = document.getElementById('infoStance');
 const infoMagazine = document.getElementById('infoMagazine');
 const infoCrewStatus = document.getElementById('infoCrewStatus');
+
+// Object info panel elements
+const objectInfoWindow = document.getElementById('objectInfoWindow');
+const objectInfoType = document.getElementById('objectInfoType');
+const objectInfoId = document.getElementById('objectInfoId');
+const objectInfoFaction = document.getElementById('objectInfoFaction');
+const objectInfoHealth = document.getElementById('objectInfoHealth');
+const objectInfoCrew = document.getElementById('objectInfoCrew');
+const objectInfoSpeed = document.getElementById('objectInfoSpeed');
+const objectInfoStatus = document.getElementById('objectInfoStatus');
+
 const groupButton = document.getElementById('groupButton');
 const groupTabsContainer = document.getElementById('groupTabsContainer');
 const groupNameWindow = document.getElementById('groupNameWindow');
@@ -362,7 +379,90 @@ const createGroupBtn = document.getElementById('createGroupBtn');
 
 function updateUnitInfo() {
     const selected = entityManager.selectedEntities;
-    
+    const selectedCannon = lightCannonManager.getSelectedCannon();
+
+    // Check if a cannon is selected - use object info panel
+    if (selectedCannon) {
+        // Hide unit info, show object info
+        unitInfoWindow.classList.add('hidden');
+        objectInfoWindow.classList.remove('hidden');
+        groupButton.classList.add('hidden');
+        entityManager.formationPreview.active = false;
+
+        // Display cannon info in object panel
+        objectInfoType.textContent = 'Light Cannon';
+        objectInfoId.textContent = `#${selectedCannon.id}`;
+
+        // Faction with color
+        const factionNames = { 'none': 'Neutral', 'blue': 'Blue', 'red': 'Red' };
+        objectInfoFaction.textContent = factionNames[selectedCannon.faction] || selectedCannon.faction;
+        if (selectedCannon.faction === 'blue') {
+            objectInfoFaction.style.color = 'rgb(100, 150, 255)';
+        } else if (selectedCannon.faction === 'red') {
+            objectInfoFaction.style.color = 'rgb(255, 100, 100)';
+        } else {
+            objectInfoFaction.style.color = 'white';
+        }
+
+        // Health
+        objectInfoHealth.textContent = `${Math.round(selectedCannon.health)} / ${selectedCannon.maxHealth}`;
+
+        // Crew count
+        objectInfoCrew.textContent = `${selectedCannon.crewIds.length} / ${selectedCannon.maxCrew}`;
+
+        // Speed (calculated from crew)
+        const cannonSpeed = selectedCannon.calculateMovementSpeed();
+        if (cannonSpeed > 0) {
+            objectInfoSpeed.textContent = `${cannonSpeed.toFixed(1)} px/s`;
+            objectInfoSpeed.style.color = 'white';
+        } else {
+            objectInfoSpeed.textContent = 'Immobile';
+            objectInfoSpeed.style.color = 'rgb(150, 150, 150)';
+        }
+
+        // Status based on reload state, crew and health
+        if (selectedCannon.isReloading) {
+            if (selectedCannon.crewIds.length === 0) {
+                objectInfoStatus.textContent = 'NO CREW';
+                objectInfoStatus.style.color = 'rgb(255, 100, 100)'; // Red
+            } else {
+                // Show reload progress
+                const remainingTime = selectedCannon.reloadDuration - selectedCannon.reloadTimer;
+                objectInfoStatus.textContent = `Reloading: ${remainingTime.toFixed(1)}s`;
+                objectInfoStatus.style.color = 'rgb(255, 200, 100)'; // Orange
+            }
+        } else if (selectedCannon.isLoaded) {
+            if (selectedCannon.crewIds.length === selectedCannon.maxCrew) {
+                if (selectedCannon.health < selectedCannon.maxHealth) {
+                    objectInfoStatus.textContent = 'Repairing (LOADED)';
+                    objectInfoStatus.style.color = 'rgb(100, 255, 100)'; // Green
+                } else {
+                    objectInfoStatus.textContent = 'LOADED';
+                    objectInfoStatus.style.color = 'rgb(100, 255, 100)'; // Green
+                }
+            } else if (selectedCannon.faction !== 'none') {
+                objectInfoStatus.textContent = 'Recruiting (LOADED)';
+                objectInfoStatus.style.color = 'rgb(255, 200, 100)'; // Orange
+            } else {
+                objectInfoStatus.textContent = 'Unclaimed';
+                objectInfoStatus.style.color = 'white';
+            }
+        } else {
+            objectInfoStatus.textContent = 'Ready';
+            objectInfoStatus.style.color = 'white';
+        }
+
+        // Hide stance HUD for cannons
+        const stanceHUD = document.getElementById('stanceHUD');
+        stanceHUD.classList.add('hidden');
+
+        updateFormationBrowserVisibility();
+        return;
+    }
+
+    // No cannon selected - hide object info panel
+    objectInfoWindow.classList.add('hidden');
+
     if (selected.length === 0) {
         unitInfoWindow.classList.add('hidden');
         groupButton.classList.add('hidden');
@@ -463,7 +563,10 @@ function updateUnitInfo() {
     if (selected.length > 0) {
         // Check if all selected are friendly
         const allFriendly = selected.every(e => e.faction === 'blue');
-        if (allFriendly) {
+        // Check if all selected are crew members (crew can't change stance)
+        const allCrewMembers = selected.every(e => e.isCrewMember);
+
+        if (allFriendly && !allCrewMembers) {
             stanceHUD.classList.remove('hidden');
             updateStanceButtons();
         } else {
@@ -500,83 +603,103 @@ function updateStanceButtons() {
 
 function updateGroupTabs() {
     groupTabsContainer.innerHTML = '';
-    
+
     // Separate friendly and enemy groups
     const friendlyGroups = [];
     const enemyGroups = [];
-    
+
     for (const group of entityManager.groups) {
-        const groupEntities = group.getEntities(entityManager);
-        if (groupEntities.length > 0) {
-            if (groupEntities[0].faction === 'red') {
-                enemyGroups.push(group);
-            } else {
-                friendlyGroups.push(group);
-            }
+        let faction = 'blue'; // default
+
+        if (group.isCannonCrewGroup) {
+            // Get faction from linked cannon
+            const cannon = lightCannonManager.cannons.find(c => c.id === group.linkedCannonId);
+            faction = cannon?.faction ?? 'none';
+            // Skip if cannon is neutral (shouldn't happen but just in case)
+            if (faction === 'none') continue;
+        } else {
+            // Normal group - check first entity
+            const groupEntities = group.getEntities(entityManager);
+            if (groupEntities.length === 0) continue;
+            faction = groupEntities[0].faction;
+        }
+
+        if (faction === 'red') {
+            enemyGroups.push(group);
+        } else {
+            friendlyGroups.push(group);
         }
     }
-    
+
     // Create friendly group tabs
     for (const group of friendlyGroups) {
         const tab = document.createElement('div');
         tab.className = 'group-tab';
         tab.dataset.groupId = group.id;
-        
+
         const name = document.createElement('span');
         name.className = 'group-tab-name';
         name.textContent = group.name;
-        
-        const deleteBtn = document.createElement('span');
-        deleteBtn.className = 'group-tab-delete';
-        deleteBtn.textContent = 'x';
-        deleteBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            entityManager.disbandGroup(group.id);
-            updateGroupTabs();
-            updateUnitInfo();
-        });
-        
+
+        tab.appendChild(name);
+
+        // Only add delete button for non-cannon-crew groups
+        if (!group.isCannonCrewGroup) {
+            const deleteBtn = document.createElement('span');
+            deleteBtn.className = 'group-tab-delete';
+            deleteBtn.textContent = 'x';
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                entityManager.disbandGroup(group.id);
+                updateGroupTabs();
+                updateUnitInfo();
+            });
+            tab.appendChild(deleteBtn);
+        }
+
         tab.addEventListener('click', (e) => {
             if (e.target.classList.contains('group-tab-delete')) return;
             console.log(`Tab clicked for group ${group.id}`);
             entityManager.selectGroup(group.id);
             updateUnitInfo();
         });
-        
-        tab.appendChild(name);
-        tab.appendChild(deleteBtn);
+
         groupTabsContainer.appendChild(tab);
     }
-    
+
     // Create enemy group tabs (below friendly tabs)
     for (const group of enemyGroups) {
         const tab = document.createElement('div');
         tab.className = 'group-tab enemy';
         tab.dataset.groupId = group.id;
-        
+
         const name = document.createElement('span');
         name.className = 'group-tab-name';
         name.textContent = group.name;
-        
-        const deleteBtn = document.createElement('span');
-        deleteBtn.className = 'group-tab-delete';
-        deleteBtn.textContent = 'x';
-        deleteBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            entityManager.disbandGroup(group.id);
-            updateGroupTabs();
-            updateUnitInfo();
-        });
-        
+
+        tab.appendChild(name);
+
+        // Only add delete button for non-cannon-crew groups
+        if (!group.isCannonCrewGroup) {
+            const deleteBtn = document.createElement('span');
+            deleteBtn.className = 'group-tab-delete';
+            deleteBtn.textContent = 'x';
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                entityManager.disbandGroup(group.id);
+                updateGroupTabs();
+                updateUnitInfo();
+            });
+            tab.appendChild(deleteBtn);
+        }
+
         tab.addEventListener('click', (e) => {
             if (e.target.classList.contains('group-tab-delete')) return;
             console.log(`Tab clicked for enemy group ${group.id}`);
             entityManager.selectGroup(group.id);
             updateUnitInfo();
         });
-        
-        tab.appendChild(name);
-        tab.appendChild(deleteBtn);
+
         groupTabsContainer.appendChild(tab);
     }
 }
@@ -816,8 +939,39 @@ function drawPlaceholder() {
             ctx.lineTo(screenX, screenY + crossSize);
             ctx.stroke();
         }
+
+        else if (godMenuSelectedItem === 'shell') {
+            // Shell preview - shows target crosshair and incoming trajectory hint
+            const explosionRadius = 30; // Expected explosion radius
+
+            // Dashed circle showing explosion radius
+            ctx.strokeStyle = 'rgba(255, 100, 0, 0.4)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, explosionRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Target crosshair
+            ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)';
+            ctx.lineWidth = 2;
+            const crossSize = 12;
+            ctx.beginPath();
+            ctx.moveTo(screenX - crossSize, screenY);
+            ctx.lineTo(screenX + crossSize, screenY);
+            ctx.moveTo(screenX, screenY - crossSize);
+            ctx.lineTo(screenX, screenY + crossSize);
+            ctx.stroke();
+
+            // Shell icon at center
+            ctx.fillStyle = 'rgba(80, 80, 80, 0.8)';
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
-    
+
     if (isHoldingRightClick && rightClickHoldStart) {
         const holdDuration = performance.now() - rightClickHoldStart;
         const progress = Math.min(holdDuration / 500, 1);
@@ -972,6 +1126,48 @@ function drawFormationMoveIndicator() {
     ctx.fill();
 }
 
+function drawCannonMoveIndicator() {
+    const selectedCannon = lightCannonManager.getSelectedCannon();
+    if (!isCannonMoving || !selectedCannon || selectedCannon.isDying) return;
+
+    const targetX = selectedCannon.x + Math.cos(cannonMoveAngle) * cannonMoveDistance;
+    const targetY = selectedCannon.y + Math.sin(cannonMoveAngle) * cannonMoveDistance;
+
+    const screenCenterX = selectedCannon.x - camera.x;
+    const screenCenterY = selectedCannon.y - camera.y;
+    const screenTargetX = targetX - camera.x;
+    const screenTargetY = targetY - camera.y;
+
+    // Change colors based on validity (orange for cannon)
+    const strokeColor = cannonMoveIsValid ? 'rgba(255, 165, 0, 0.8)' : 'rgba(128, 128, 128, 0.8)';
+    const fillColor = cannonMoveIsValid ? 'rgba(255, 165, 0, 0.8)' : 'rgba(128, 128, 128, 0.8)';
+
+    // Draw arrow
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(screenCenterX, screenCenterY);
+    ctx.lineTo(screenTargetX, screenTargetY);
+    ctx.stroke();
+
+    // Draw arrowhead
+    const arrowSize = 15;
+    const angle = cannonMoveAngle;
+    ctx.fillStyle = fillColor;
+    ctx.beginPath();
+    ctx.moveTo(screenTargetX, screenTargetY);
+    ctx.lineTo(
+        screenTargetX - arrowSize * Math.cos(angle - Math.PI / 6),
+        screenTargetY - arrowSize * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.lineTo(
+        screenTargetX - arrowSize * Math.cos(angle + Math.PI / 6),
+        screenTargetY - arrowSize * Math.sin(angle + Math.PI / 6)
+    );
+    ctx.closePath();
+    ctx.fill();
+}
+
 function gameLoop() {
     const currentTime = performance.now();
     const deltaTime = (currentTime - lastTime) / 1000;
@@ -1046,6 +1242,13 @@ function gameLoop() {
     t1 = performance.now();
     timings['Formation arrow'] = (t1 - t0).toFixed(2) + 'ms';
 
+    // Cannon arrow movement
+    if (isCannonMoving) {
+        cannonMoveDistance += 2;
+        cannonMoveDistance = Math.min(cannonMoveDistance, 1000);
+        cannonMoveIsValid = validateCannonArrowMovement();
+    }
+
     // Update fire
     t0 = performance.now();
     fireManager.updateAll(deltaTime, windDirection, windSpeed);
@@ -1065,11 +1268,14 @@ function gameLoop() {
     t1 = performance.now();
     timings['Explosion update'] = (t1 - t0).toFixed(2) + 'ms';
 
+    // Update shells
+    shellManager.updateAll(deltaTime, entityManager.getAllEntities());
+
     // Update capture objectives
     captureObjectiveManager.updateAll(deltaTime, entityManager.getAllEntities());
 
     // Update light cannons
-    lightCannonManager.updateAll(deltaTime);
+    lightCannonManager.updateAll(deltaTime, entityManager.getAllEntities());
 
     // DRAWING PHASE
     t0 = performance.now();
@@ -1312,6 +1518,9 @@ function gameLoop() {
     t1 = performance.now();
     timings['Draw explosions'] = (t1 - t0).toFixed(2) + 'ms';
 
+    // Draw shells and water splashes
+    shellManager.drawAll(ctx, camera);
+
     // Draw capture objectives
     captureObjectiveManager.drawAll(ctx, camera);
 
@@ -1321,6 +1530,7 @@ function gameLoop() {
     drawSelectionBox();
     drawPlaceholder();
     drawFormationMoveIndicator();
+    drawCannonMoveIndicator();
     drawWindArrow(ctx);
     t1 = performance.now();
     timings['Draw UI'] = (t1 - t0).toFixed(2) + 'ms';
@@ -1382,7 +1592,7 @@ window.addEventListener('keydown', (e) => {
         const firstEntity = entityManager.selectedEntities[0];
         if (firstEntity.groupId !== null) {
             let angle = null;
-            
+
             if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
                 angle = -Math.PI / 2;
                 e.preventDefault();
@@ -1396,11 +1606,39 @@ window.addEventListener('keydown', (e) => {
                 angle = 0;
                 e.preventDefault();
             }
-            
+
             if (angle !== null && !isFormationMoving) { // Only initialize if not already moving
                 isFormationMoving = true;
                 formationMoveAngle = angle;
                 formationMoveDistance = 1;
+            }
+        }
+    }
+
+    // Ctrl+Arrow key movement for selected cannon
+    if (e.ctrlKey) {
+        const selectedCannon = lightCannonManager.getSelectedCannon();
+        if (selectedCannon && !selectedCannon.isDying && selectedCannon.crewIds.length > 0) {
+            let angle = null;
+
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+                angle = -Math.PI / 2;
+                e.preventDefault();
+            } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+                angle = Math.PI / 2;
+                e.preventDefault();
+            } else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                angle = Math.PI;
+                e.preventDefault();
+            } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                angle = 0;
+                e.preventDefault();
+            }
+
+            if (angle !== null && !isCannonMoving) {
+                isCannonMoving = true;
+                cannonMoveAngle = angle;
+                cannonMoveDistance = 1;
             }
         }
     }
@@ -1412,9 +1650,9 @@ window.addEventListener('keyup', (e) => {
     if (e.key === 'Shift') {
         selectRedMode = false;
     }
-    
+
     if (isFormationMoving && (
-        e.key === 'ArrowUp' || e.key === 'ArrowDown' || 
+        e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
         e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
         e.key === 'w' || e.key === 'W' || e.key === 's' || e.key === 'S' ||
         e.key === 'a' || e.key === 'A' || e.key === 'd' || e.key === 'D' ||
@@ -1423,6 +1661,18 @@ window.addEventListener('keyup', (e) => {
         executeFormationMovement();
         isFormationMoving = false;
         formationMoveDistance = 0;
+    }
+
+    if (isCannonMoving && (
+        e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+        e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
+        e.key === 'w' || e.key === 'W' || e.key === 's' || e.key === 'S' ||
+        e.key === 'a' || e.key === 'A' || e.key === 'd' || e.key === 'D' ||
+        e.key === 'Control'
+    )) {
+        executeCannonMovement();
+        isCannonMoving = false;
+        cannonMoveDistance = 0;
     }
 });
 
@@ -1519,6 +1769,62 @@ function validateFormationArrowMovement() {
         }
     }
     
+    return true;
+}
+
+function executeCannonMovement() {
+    const selectedCannon = lightCannonManager.getSelectedCannon();
+    if (!selectedCannon || selectedCannon.isDying || selectedCannon.crewIds.length === 0) return;
+
+    if (!cannonMoveIsValid) {
+        console.log('Cannon movement blocked - would place on walls/water');
+        return;
+    }
+
+    const targetX = selectedCannon.x + Math.cos(cannonMoveAngle) * cannonMoveDistance;
+    const targetY = selectedCannon.y + Math.sin(cannonMoveAngle) * cannonMoveDistance;
+
+    // Create flow field for cannon movement
+    const gridSize = 50;
+    const cacheKey = `${Math.floor(targetX / gridSize)}_${Math.floor(targetY / gridSize)}`;
+
+    let flowField = entityManager.flowFieldCache.get(cacheKey);
+
+    if (!flowField) {
+        console.log(`Creating flow field for cannon Ctrl+Arrow movement to (${Math.floor(targetX)}, ${Math.floor(targetY)})...`);
+        const startTime = performance.now();
+        flowField = new FlowField(targetX, targetY, MAP_WIDTH, MAP_HEIGHT);
+        const calcTime = performance.now() - startTime;
+        console.log(`Flow field calculated in ${calcTime.toFixed(2)}ms`);
+
+        entityManager.flowFieldCache.set(cacheKey, flowField);
+
+        if (entityManager.flowFieldCache.size > entityManager.maxCacheSize) {
+            const firstKey = entityManager.flowFieldCache.keys().next().value;
+            entityManager.flowFieldCache.delete(firstKey);
+        }
+    } else {
+        console.log(`Using cached flow field for cannon Ctrl+Arrow movement`);
+    }
+
+    selectedCannon.setFlowField(flowField);
+    selectedCannon.moveTo(targetX, targetY);
+
+    console.log(`Cannon ${selectedCannon.id} moved ${cannonMoveDistance}px at angle ${(cannonMoveAngle * 180 / Math.PI).toFixed(0)}°`);
+}
+
+function validateCannonArrowMovement() {
+    const selectedCannon = lightCannonManager.getSelectedCannon();
+    if (!selectedCannon || selectedCannon.isDying) return true;
+
+    const targetX = selectedCannon.x + Math.cos(cannonMoveAngle) * cannonMoveDistance;
+    const targetY = selectedCannon.y + Math.sin(cannonMoveAngle) * cannonMoveDistance;
+
+    const terrainType = TerrainManager.getTerrainType(targetX, targetY);
+    if (terrainType === 'wall' || terrainType === 'water') {
+        return false;
+    }
+
     return true;
 }
 
@@ -1628,6 +1934,15 @@ canvas.addEventListener('mousedown', (e) => {
                 // Explosion spawns with default settings (size=1.0, burn=true)
                 explosionManager.addExplosion(worldX, worldY, 1.0, true);
                 console.log(`Explosion spawned at (${Math.floor(worldX)}, ${Math.floor(worldY)})`);
+            } else if (godMenuSelectedItem === 'shell') {
+                // Shell spawns from random point 1000px away, aimed at click location
+                const spawnDistance = 1000;
+                const randomAngle = Math.random() * Math.PI * 2;
+                const spawnX = worldX + Math.cos(randomAngle) * spawnDistance;
+                const spawnY = worldY + Math.sin(randomAngle) * spawnDistance;
+
+                shellManager.addShell(spawnX, spawnY, worldX, worldY, 'cannon_shell', 1.0, 'none');
+                console.log(`Shell spawned at (${Math.floor(spawnX)}, ${Math.floor(spawnY)}) → (${Math.floor(worldX)}, ${Math.floor(worldY)})`);
             }
 
             return; // Don't process other right-click actions
@@ -1696,30 +2011,58 @@ canvas.addEventListener('mousedown', (e) => {
             enemySpawnTroopCount = 10;
             enemySpawnGroupName = '';
             canvas.style.cursor = 'crosshair';
-        } else if (entityManager.selectedEntities.length > 0) {
-            // Check if right-clicking on an enemy unit for targeted fire
-            const clickedEntity = entityManager.getEntityAtPosition(worldX, worldY);
-            
-            if (clickedEntity && clickedEntity.faction !== entityManager.selectedEntities[0].faction) {
-                // Targeted fire - lock all selected units onto this enemy
-                for (const entity of entityManager.selectedEntities) {
-                    entity.lockedTarget = clickedEntity;
-                    entity.targetLockTimer = 0;
-                    entity.hasManualTarget = true; // Mark as manual target
-                    
-                    // Rotate to face target if not moving
-                    if (!entity.isMoving) {
-                        const dx = clickedEntity.x - entity.x;
-                        const dy = clickedEntity.y - entity.y;
-                        entity.targetHeading = Math.atan2(dy, dx);
-                        entity.isRotating = true;
-                    }
+        } else {
+            // Check if cannon is selected FIRST (cannon takes priority over crew selection)
+            const selectedCannon = lightCannonManager.getSelectedCannon();
+            if (selectedCannon && !selectedCannon.isDying) {
+                const clickedEntity = entityManager.getEntityAtPosition(worldX, worldY);
+
+                if (clickedEntity && clickedEntity.faction !== selectedCannon.faction && clickedEntity.faction !== 'none') {
+                    // Manual target enemy - cannon takes priority
+                    selectedCannon.hasManualTarget = true;
+                    selectedCannon.manualTarget = clickedEntity;
+                    selectedCannon.lockedTarget = clickedEntity;
+                    selectedCannon.targetLockTimer = 0;
+
+                    console.log(`Cannon ${selectedCannon.id}: Manual target set to entity ${clickedEntity.id}`);
+                    e.preventDefault();
+                    return;
                 }
-                console.log(`${entityManager.selectedEntities.length} units ordered to target entity ${clickedEntity.id}`);
-                e.preventDefault();
-                return;
+
+                // Right-click on terrain clears manual target
+                if (selectedCannon.hasManualTarget) {
+                    console.log(`Cannon ${selectedCannon.id}: Manual target cleared`);
+                    selectedCannon.hasManualTarget = false;
+                    selectedCannon.manualTarget = null;
+                }
             }
-            
+
+            // Check for entity targeting (when no cannon selected or cannon didn't handle click)
+            if (entityManager.selectedEntities.length > 0) {
+                // Check if right-clicking on an enemy unit for targeted fire
+                const clickedEntity = entityManager.getEntityAtPosition(worldX, worldY);
+
+                if (clickedEntity && clickedEntity.faction !== entityManager.selectedEntities[0].faction) {
+                    // Targeted fire - lock all selected units onto this enemy
+                    for (const entity of entityManager.selectedEntities) {
+                        entity.lockedTarget = clickedEntity;
+                        entity.targetLockTimer = 0;
+                        entity.hasManualTarget = true; // Mark as manual target
+
+                        // Rotate to face target if not moving
+                        if (!entity.isMoving) {
+                            const dx = clickedEntity.x - entity.x;
+                            const dy = clickedEntity.y - entity.y;
+                            entity.targetHeading = Math.atan2(dy, dx);
+                            entity.isRotating = true;
+                        }
+                    }
+                    console.log(`${entityManager.selectedEntities.length} units ordered to target entity ${clickedEntity.id}`);
+                    e.preventDefault();
+                    return;
+                }
+            }
+
             // Not clicking on enemy - proceed with normal movement order
             rightClickHoldStart = performance.now();
             rightClickHoldX = worldX;
@@ -1728,7 +2071,7 @@ canvas.addEventListener('mousedown', (e) => {
         }
         return;
     }
-    
+
     if (e.button !== 0) return;
     if (spawnMode) return;
     
@@ -1765,19 +2108,43 @@ canvas.addEventListener('mousedown', (e) => {
         return;
     }
 
-    const clickedEntity = entityManager.getEntityAtPosition(worldX, worldY);
-    
-    if (clickedEntity) {
-        const additive = e.ctrlKey;
-        entityManager.selectEntity(clickedEntity, additive);
+    // Check for cannon click first (cannons have priority)
+    const clickedCannon = lightCannonManager.getCannonAt(worldX, worldY);
+
+    if (clickedCannon) {
+        // Deselect all entities first
+        entityManager.deselectAll();
+
+        // Select the cannon
+        lightCannonManager.selectCannon(clickedCannon);
+
+        // Auto-select all crew members
+        for (const crewId of clickedCannon.crewIds) {
+            const crewEntity = entityManager.getEntity(crewId);
+            if (crewEntity && !crewEntity.isDying) {
+                entityManager.selectEntity(crewEntity, true); // Additive selection
+            }
+        }
+
         updateUnitInfo();
     } else {
-        isSelecting = true;
-        selectRedMode = e.shiftKey; // Capture shift state when selection starts
-        selectionStartX = e.clientX;
-        selectionStartY = e.clientY;
-        selectionCurrentX = e.clientX;
-        selectionCurrentY = e.clientY;
+        const clickedEntity = entityManager.getEntityAtPosition(worldX, worldY);
+
+        if (clickedEntity) {
+            // Deselect cannon when selecting entity
+            lightCannonManager.deselectCannon();
+
+            const additive = e.ctrlKey;
+            entityManager.selectEntity(clickedEntity, additive);
+            updateUnitInfo();
+        } else {
+            isSelecting = true;
+            selectRedMode = e.shiftKey; // Capture shift state when selection starts
+            selectionStartX = e.clientX;
+            selectionStartY = e.clientY;
+            selectionCurrentX = e.clientX;
+            selectionCurrentY = e.clientY;
+        }
     }
 });
 
@@ -1816,26 +2183,68 @@ window.addEventListener('mouseup', (e) => {
         const worldX2 = selectionCurrentX + camera.x;
         const worldY2 = selectionCurrentY + camera.y;
 
+        // Get all entities in selection box
         let selectedEntities = entityManager.getEntitiesInRect(worldX1, worldY1, worldX2, worldY2);
-        
-        // Filter by faction based on selection mode
-        const blueUnits = selectedEntities.filter(e => e.faction === 'blue');
-        const redUnits = selectedEntities.filter(e => e.faction === 'red');
-        
+
+        // Selection hierarchy: normal blue > blue crew > normal red > red crew > cannons
+        const blueNormal = selectedEntities.filter(e => e.faction === 'blue' && !e.isCrewMember);
+        const blueCrew = selectedEntities.filter(e => e.faction === 'blue' && e.isCrewMember);
+        const redNormal = selectedEntities.filter(e => e.faction === 'red' && !e.isCrewMember);
+        const redCrew = selectedEntities.filter(e => e.faction === 'red' && e.isCrewMember);
+
         if (selectRedMode) {
-            // Shift held - select only red units
-            selectedEntities = redUnits;
-        } else {
-            // Normal mode - prefer blue, but select red if no blue available
-            if (blueUnits.length > 0) {
-                selectedEntities = blueUnits;
+            // Shift held - select red units (normal first, then crew)
+            if (redNormal.length > 0) {
+                selectedEntities = redNormal;
+            } else if (redCrew.length > 0) {
+                selectedEntities = redCrew;
             } else {
-                selectedEntities = redUnits;
+                selectedEntities = [];
+            }
+        } else {
+            // Normal mode - hierarchy: blue normal > blue crew > red normal > red crew
+            if (blueNormal.length > 0) {
+                selectedEntities = blueNormal;
+            } else if (blueCrew.length > 0) {
+                selectedEntities = blueCrew;
+            } else if (redNormal.length > 0) {
+                selectedEntities = redNormal;
+            } else if (redCrew.length > 0) {
+                selectedEntities = redCrew;
+            } else {
+                selectedEntities = [];
             }
         }
-        
-        const additive = e.ctrlKey;
-        entityManager.selectEntities(selectedEntities, additive);
+
+        // If entities found, select them (deselect cannon)
+        if (selectedEntities.length > 0) {
+            lightCannonManager.deselectCannon();
+            const additive = e.ctrlKey;
+            entityManager.selectEntities(selectedEntities, additive);
+        } else {
+            // No entities - check for cannons (lowest priority)
+            const selectedCannons = lightCannonManager.getCannonsInRect(worldX1, worldY1, worldX2, worldY2);
+
+            if (selectedCannons.length === 1) {
+                const cannon = selectedCannons[0];
+
+                // Deselect all entities first
+                entityManager.deselectAll();
+                lightCannonManager.selectCannon(cannon);
+
+                // Auto-select all crew members
+                for (const crewId of cannon.crewIds) {
+                    const crewEntity = entityManager.getEntity(crewId);
+                    if (crewEntity && !crewEntity.isDying) {
+                        entityManager.selectEntity(crewEntity, true);
+                    }
+                }
+            } else {
+                // No cannon or multiple cannons - just deselect
+                lightCannonManager.deselectCannon();
+                entityManager.deselectAll();
+            }
+        }
         
         isSelecting = false;
         selectRedMode = false; // Reset mode after selection
@@ -2240,13 +2649,20 @@ function updateFormationBrowserVisibility() {
     if (entityManager.selectedEntities.length > 1) {
         const firstEntity = entityManager.selectedEntities[0];
         if (firstEntity.groupId !== null) {
+            const group = entityManager.groups.find(g => g.id === firstEntity.groupId);
+
+            // Hide formation browser for cannon crew groups
+            if (group && group.isCannonCrewGroup) {
+                formationBrowser.classList.add('hidden');
+                return;
+            }
+
             formationBrowser.classList.remove('hidden');
             updateFormationBrowser();
-            
-            const group = entityManager.groups.find(g => g.id === firstEntity.groupId);
+
             if (group) {
                 const lastFormationId = group.getLastFormation();
-                
+
                 if (lastFormationId === 'none') {
                     selectFormationInBrowser('none');
                 } else {
@@ -2259,11 +2675,11 @@ function updateFormationBrowserVisibility() {
                     }
                 }
             }
-            
+
             return;
         }
     }
-    
+
     formationBrowser.classList.add('hidden');
 }
 
@@ -2612,14 +3028,15 @@ function setSelectedStance(stance) {
     const selected = entityManager.selectedEntities;
     
     // Only change stance for friendly units
-    const friendlyUnits = selected.filter(e => e.faction === 'blue');
-    
+    // Filter: friendly units that are NOT crew members (crew always have 'none' stance)
+    const friendlyUnits = selected.filter(e => e.faction === 'blue' && !e.isCrewMember);
+
     if (friendlyUnits.length === 0) {
-        console.log('No friendly units selected to change stance');
+        console.log('No friendly units selected to change stance (crew members cannot change stance)');
         return;
     }
-    
-    // Change stance for all friendly units
+
+    // Change stance for all friendly units (excluding crew)
     for (const entity of friendlyUnits) {
         entity.stance = stance;
         entity.lockedTarget = null; // Clear any locked target when changing stance

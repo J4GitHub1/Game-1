@@ -144,6 +144,12 @@ class CaptureObjective {
                     // If linked object has crew system, clear crew on neutralization
                     if (this.linkedObject.crewIds !== undefined) {
                         this.clearLinkedObjectCrew(this.linkedObject);
+
+                        // Dissolve cannon crew group
+                        if (this.linkedObject.crewGroupId !== null) {
+                            entityManager.dissolveCannonCrewGroup(this.linkedObject);
+                            if (typeof updateGroupTabs === 'function') updateGroupTabs();
+                        }
                     }
                 }
 

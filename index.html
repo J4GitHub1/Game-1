@@ -133,6 +133,14 @@
                 </svg>
                 <span>Explosion</span>
             </div>
+            <div class="god-menu-item" data-spawn-type="shell">
+                <svg width="24" height="24" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="5" fill="rgb(80,80,80)"/>
+                    <line x1="4" y1="20" x2="12" y2="12" stroke="rgb(150,150,150)" stroke-width="2" stroke-dasharray="3,3"/>
+                    <circle cx="4" cy="20" r="3" fill="rgba(255,100,0,0.6)"/>
+                </svg>
+                <span>Shell</span>
+            </div>
             
             <!-- Wind Controls -->
             <div class="god-menu-wind-controls">
@@ -367,6 +375,43 @@
         </div>
     </div>
 
+    <!-- Object Info Window (Bottom-Left, for cannons etc.) -->
+    <div id="objectInfoWindow" class="object-info-window hidden">
+        <div class="object-info-header">
+            <span>Object Info</span>
+        </div>
+        <div class="object-info-content">
+            <div class="info-section">
+                <div class="info-label">Type:</div>
+                <div class="info-value" id="objectInfoType">-</div>
+            </div>
+            <div class="info-section">
+                <div class="info-label">ID:</div>
+                <div class="info-value" id="objectInfoId">-</div>
+            </div>
+            <div class="info-section">
+                <div class="info-label">Faction:</div>
+                <div class="info-value" id="objectInfoFaction">-</div>
+            </div>
+            <div class="info-section">
+                <div class="info-label">Health:</div>
+                <div class="info-value" id="objectInfoHealth">-</div>
+            </div>
+            <div class="info-section">
+                <div class="info-label">Crew:</div>
+                <div class="info-value" id="objectInfoCrew">-</div>
+            </div>
+            <div class="info-section">
+                <div class="info-label">Speed:</div>
+                <div class="info-value" id="objectInfoSpeed">-</div>
+            </div>
+            <div class="info-section">
+                <div class="info-label">Status:</div>
+                <div class="info-value" id="objectInfoStatus">-</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Stance Control HUD (Bottom Center) -->
     <div id="stanceHUD" class="stance-hud hidden">
         <div class="stance-hud-header">Stance</div>
@@ -392,6 +437,7 @@
     <script src="fire.js"></script>
     <script src="smoke.js"></script>
     <script src="explosion.js"></script>
+    <script src="shell.js"></script>
     <script src="capture-objective.js"></script>
     <script src="leader_halo.js"></script>
     <script src="entities.js"></script>

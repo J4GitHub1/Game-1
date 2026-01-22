@@ -50,6 +50,7 @@ class Entity {
         // Crew assignment (for cannon crew system)
         this.isCrewMember = false;
         this.assignedCannonId = null;
+        this.crewStopDelay = 0; // Timer for delayed stop when re-entering capture radius
 
         // Stance system
         this.stance = faction === 'red' ? 'offensive' : 'none'; // Enemies offensive by default, friendlies none
@@ -669,15 +670,18 @@ const combinedForce = {
             this.stuckCounter = 0;
             
             // Update heading to match movement direction
-            if (Math.abs(this.velocity.x) > 0.1 || Math.abs(this.velocity.y) > 0.1) {
+            // Skip if offensive stance with locked target (they aim at enemies while moving)
+            const isAimingAtEnemy = this.stance === 'offensive' && this.lockedTarget && !this.lockedTarget.isDying;
+
+            if (!isAimingAtEnemy && (Math.abs(this.velocity.x) > 0.1 || Math.abs(this.velocity.y) > 0.1)) {
                 const moveHeading = Math.atan2(this.velocity.y, this.velocity.x);
-                
+
                 let headingDiff = moveHeading - this.heading;
                 while (headingDiff > Math.PI) headingDiff -= 2 * Math.PI;
                 while (headingDiff < -Math.PI) headingDiff += 2 * Math.PI;
-                
+
                 this.heading += headingDiff * 0.15;
-                
+
                 while (this.heading < 0) this.heading += 2 * Math.PI;
                 while (this.heading >= 2 * Math.PI) this.heading -= 2 * Math.PI;
             }
@@ -835,6 +839,118 @@ const combinedForce = {
                 // Apply repulsion (similar to fire avoidance)
                 this.x += force.x * deltaTime * 20;  // Moderate repulsion strength
                 this.y += force.y * deltaTime * 20;
+            }
+        }
+    }
+
+    // CANNON CREW BEHAVIOR - crew follows cannon when outside capture radius
+    // Skip all crew behavior when panicking - let them run free
+    if (this.isCrewMember && this.assignedCannonId !== null && !this.isPanicking && typeof lightCannonManager !== 'undefined') {
+        const cannon = lightCannonManager.cannons.find(c => c.id === this.assignedCannonId);
+        if (cannon && cannon.captureObjective) {
+            const captureRadius = cannon.captureObjective.capture_radius;
+            const dx = this.x - cannon.x;
+            const dy = this.y - cannon.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // OUTSIDE CAPTURE RADIUS - use full movement system to return to cannon
+            if (distance > captureRadius) {
+                // Reset stop delay when outside
+                this.crewStopDelay = 0;
+
+                // Check if we need to start moving toward cannon (or update target if cannon moved)
+                const needsNewTarget = !this.isMoving ||
+                    this.targetX === null ||
+                    (Math.abs(this.targetX - cannon.x) > 5 || Math.abs(this.targetY - cannon.y) > 5);
+
+                if (needsNewTarget) {
+                    // Set movement target to cannon position
+                    this.targetX = cannon.x;
+                    this.targetY = cannon.y;
+                    this.finalTargetX = cannon.x;
+                    this.finalTargetY = cannon.y;
+                    this.isMoving = true;
+
+                    // Calculate target heading toward cannon
+                    this.targetHeading = Math.atan2(-dy, -dx);
+                    while (this.targetHeading < 0) this.targetHeading += 2 * Math.PI;
+                    while (this.targetHeading >= 2 * Math.PI) this.targetHeading -= 2 * Math.PI;
+                    this.isRotating = true;
+
+                    // Use cannon's flow field if available for pathfinding
+                    if (cannon.flowField) {
+                        this.flowField = cannon.flowField;
+                    }
+                }
+                // Movement will be handled by the normal movement update logic above
+            } else {
+                // INSIDE CAPTURE RADIUS - use attraction/separation behavior
+                // Stop movement with 0.5s delay after re-entering capture radius
+                if (this.isMoving && this.targetX === cannon.x && this.targetY === cannon.y) {
+                    this.crewStopDelay += deltaTime;
+                    if (this.crewStopDelay >= 0.5) {
+                        this.isMoving = false;
+                        this.targetX = null;
+                        this.targetY = null;
+                        this.finalTargetX = null;
+                        this.finalTargetY = null;
+                        this.velocity = { x: 0, y: 0 };
+                        this.flowField = null;
+                        this.crewStopDelay = 0;
+                    }
+                }
+
+                // Calculate separation from other crew members (dispersion)
+                let separationX = 0;
+                let separationY = 0;
+                let crewCount = 0;
+                const crewSpacingRadius = this.personalSpaceRadius * 1.2;
+
+                for (const crewId of cannon.crewIds) {
+                    if (crewId === this.id) continue;
+                    const otherCrew = entityManager.getEntity(crewId);
+                    if (!otherCrew || otherCrew.isDying) continue;
+
+                    const cdx = this.x - otherCrew.x;
+                    const cdy = this.y - otherCrew.y;
+                    const crewDist = Math.sqrt(cdx * cdx + cdy * cdy);
+
+                    if (crewDist > 0 && crewDist < crewSpacingRadius) {
+                        const distWeight = 1 - (crewDist / crewSpacingRadius);
+                        separationX += (cdx / crewDist) * distWeight;
+                        separationY += (cdy / crewDist) * distWeight;
+                        crewCount++;
+                    }
+                }
+
+                // Normalize and apply separation
+                if (crewCount > 0) {
+                    separationX /= crewCount;
+                    separationY /= crewCount;
+                    const sepMag = Math.sqrt(separationX * separationX + separationY * separationY);
+                    if (sepMag > 0) {
+                        separationX /= sepMag;
+                        separationY /= sepMag;
+                    }
+                    this.x += separationX * deltaTime * 15;
+                    this.y += separationY * deltaTime * 15;
+                }
+
+                // Apply attraction if near the capture radius edge (60%+)
+                if (distance > captureRadius * 0.6 && distance > 0.1) {
+                    const pullStrength = (distance - captureRadius * 0.6) / (captureRadius * 0.4);
+                    const clampedStrength = Math.min(pullStrength, 1.0);
+                    const attractX = -(dx / distance) * clampedStrength;
+                    const attractY = -(dy / distance) * clampedStrength;
+                    this.x += attractX * deltaTime * 10;
+                    this.y += attractY * deltaTime * 10;
+                }
+
+                // Orient outward when inside capture radius (face away from cannon)
+                if (distance > 0.1) {
+                    const outwardAngle = Math.atan2(dy, dx);
+                    this.targetHeading = outwardAngle;
+                }
             }
         }
     }
@@ -2882,17 +2998,21 @@ moveTo(x, y) {
 class Group {
     static nextId = 0;
 
-    constructor(name, entities) {
+    constructor(name, entities, options = {}) {
         this.id = Group.nextId++;
         this.name = name;
         this.entityIds = entities.map(e => e.id);
         this.lastFormationId = 'none'; // Remember last formation used
-        
+
+        // Cannon crew group properties
+        this.isCannonCrewGroup = options.isCannonCrewGroup ?? false;
+        this.linkedCannonId = options.linkedCannonId ?? null;
+
         for (const entity of entities) {
             entity.groupId = this.id;
         }
-        
-        console.log(`Group created: ID=${this.id}, Name="${name}", Entities=[${this.entityIds.join(', ')}]`);
+
+        console.log(`Group created: ID=${this.id}, Name="${name}", Entities=[${this.entityIds.join(', ')}]${this.isCannonCrewGroup ? ' (Cannon Crew Group)' : ''}`);
     }
 
     addEntity(entity) {
@@ -3017,6 +3137,25 @@ updateAll(deltaTime) {
             if (cannon) {
                 cannon.crewIds = cannon.crewIds.filter(id => id !== deadEntity.id);
                 console.log(`Entity ${deadEntity.id} removed from cannon ${cannon.id} crew (died)`);
+
+                // If cannon was reloading, RESET reload cycle
+                if (cannon.isReloading) {
+                    console.log(`Cannon ${cannon.id}: Reload reset due to crew death`);
+                    cannon.reloadTimer = 0; // Start over from 0
+
+                    // Recalculate duration with new crew count
+                    if (cannon.crewIds.length > 0) {
+                        cannon.reloadDuration = cannon.calculateReloadTime();
+                    } else {
+                        // Last crew member died - freeze reload
+                        cannon.reloadDuration = Infinity;
+                        cannon.noCrewLogged = false; // Will log "NO CREW" next frame
+                    }
+                }
+
+                // Sync cannon crew group membership
+                this.syncCannonCrewGroup(cannon);
+                if (typeof updateGroupTabs === 'function') updateGroupTabs();
             }
         }
 
@@ -3024,8 +3163,11 @@ updateAll(deltaTime) {
         this.entities = this.entities.filter(e => e.id !== deadEntity.id);
     }
     
-    // Clean up groups with no living members
+    // Clean up groups with no living members (except cannon crew groups which are managed by the cannon)
     const deadGroups = this.groups.filter(g => {
+        // Skip cannon crew groups - they are managed by cannon lifecycle
+        if (g.isCannonCrewGroup) return false;
+
         const members = g.getEntities(this);
         const livingMembers = members.filter(e => !e.isDying && e.health > 0);
         return livingMembers.length === 0;
@@ -3138,7 +3280,20 @@ propagateDistress(deadEntity) {
     }
 
     moveSelectedEntities(x, y) {
-    if (this.selectedEntities.length === 0) return;
+    // Filter out crew members - they cannot receive movement orders
+    const movableEntities = this.selectedEntities.filter(e => !e.isCrewMember);
+
+    // Check if cannon is selected and can move
+    let selectedCannon = null;
+    if (typeof lightCannonManager !== 'undefined') {
+        selectedCannon = lightCannonManager.getSelectedCannon();
+        if (selectedCannon && (selectedCannon.faction === 'none' || selectedCannon.crewIds.length === 0)) {
+            selectedCannon = null; // Can't move: no faction or no crew
+        }
+    }
+
+    // Return early only if BOTH no movable entities AND no movable cannon
+    if (movableEntities.length === 0 && !selectedCannon) return;
 
     // Check if we're using a formation
     if (this.formationPreview.active && this.formationPreview.formation) {
@@ -3178,34 +3333,40 @@ propagateDistress(deadEntity) {
     }
     
     this.currentFlowField = flowField;
-    
-    // Assign flow field to all selected units
-    for (const entity of this.selectedEntities) {
+
+    // Assign flow field to all movable units (not crew)
+    for (const entity of movableEntities) {
         entity.setFlowField(flowField);
     }
-    
+
     // Move units to their positions
-    if (this.selectedEntities.length === 1) {
-        this.selectedEntities[0].moveTo(x, y);
-    } else {
+    if (movableEntities.length === 1) {
+        movableEntities[0].moveTo(x, y);
+    } else if (movableEntities.length > 1) {
         // No formation - use randomized grid movement
         const spacing = 12;
-        const numEntities = this.selectedEntities.length;
+        const numEntities = movableEntities.length;
         const cols = Math.ceil(Math.sqrt(numEntities));
-        
+
         for (let i = 0; i < numEntities; i++) {
             const row = Math.floor(i / cols);
             const col = i % cols;
-            
+
             // Add random offset to make it less orderly
             const randomOffsetX = (Math.random() - 0.5) * spacing * 0.6;
             const randomOffsetY = (Math.random() - 0.5) * spacing * 0.6;
-            
+
             const offsetX = (col - (cols - 1) / 2) * spacing + randomOffsetX;
             const offsetY = (row - Math.floor(numEntities / cols) / 2) * spacing + randomOffsetY;
-            
-            this.selectedEntities[i].moveTo(x + offsetX, y + offsetY);
+
+            movableEntities[i].moveTo(x + offsetX, y + offsetY);
         }
+    }
+
+    // Move selected cannon (using the selectedCannon we determined earlier)
+    if (selectedCannon) {
+        selectedCannon.setFlowField(flowField);
+        selectedCannon.moveTo(x, y);
     }
 }
 
@@ -3213,7 +3374,22 @@ moveEntitiesInFormation(centerX, centerY) {
     const formation = this.formationPreview.formation;
     const rotation = this.formationPreview.rotation;
     const scale = this.formationPreview.scale;
-    
+
+    // Filter out crew members - they cannot participate in formations
+    const movableEntities = this.selectedEntities.filter(e => !e.isCrewMember);
+
+    // Check if cannon is selected and can move
+    let selectedCannon = null;
+    if (typeof lightCannonManager !== 'undefined') {
+        selectedCannon = lightCannonManager.getSelectedCannon();
+        if (selectedCannon && (selectedCannon.faction === 'none' || selectedCannon.crewIds.length === 0)) {
+            selectedCannon = null;
+        }
+    }
+
+    // Return early only if BOTH no movable entities AND no movable cannon
+    if (movableEntities.length === 0 && !selectedCannon) return;
+
     // CREATE FLOW FIELD FOR FORMATION MOVEMENT - ADD THIS BLOCK
     const gridSize = 50;
     const cacheKey = `${Math.floor(centerX / gridSize)}_${Math.floor(centerY / gridSize)}`;
@@ -3240,38 +3416,46 @@ moveEntitiesInFormation(centerX, centerY) {
     
     // Get unit positions within the formation
     const positions = this.calculateFormationPositions(formation);
-    
-    // Assign each unit to a position
-    for (let i = 0; i < this.selectedEntities.length && i < positions.length; i++) {
-        const entity = this.selectedEntities[i];
+
+    // Assign each unit to a position (using movableEntities, not selectedEntities)
+    for (let i = 0; i < movableEntities.length && i < positions.length; i++) {
+        const entity = movableEntities[i];
         const localPos = positions[i];
-        
+
         // Apply rotation
         const rotatedX = localPos.x * Math.cos(rotation) - localPos.y * Math.sin(rotation);
         const rotatedY = localPos.x * Math.sin(rotation) + localPos.y * Math.cos(rotation);
-        
+
         // Apply scale
         const scaledX = rotatedX * scale;
         const scaledY = rotatedY * scale;
-        
+
         // Apply position offset
         const worldX = centerX + scaledX;
         const worldY = centerY + scaledY;
-        
+
         // ASSIGN FLOW FIELD - ADD THIS LINE
         entity.setFlowField(flowField);
-        
+
         // Move entity to position
         entity.moveTo(worldX, worldY);
-        
+
         // Calculate facing direction based on nearest selected edge
         if (formation.selectedEdges && formation.selectedEdges.length > 0) {
             const facingAngle = this.calculateFacingAngle(localPos, formation, rotation);
             entity.setDesiredHeading(facingAngle);
         }
     }
-    
-    console.log(`${this.selectedEntities.length} units moving in formation to (${centerX}, ${centerY})`);
+
+    if (movableEntities.length > 0) {
+        console.log(`${movableEntities.length} units moving in formation to (${centerX}, ${centerY})`);
+    }
+
+    // Move selected cannon (using the selectedCannon we determined earlier)
+    if (selectedCannon) {
+        selectedCannon.setFlowField(flowField);
+        selectedCannon.moveTo(centerX, centerY);
+    }
 }
 
 calculateFacingAngle(position, formation, formationRotation) {
@@ -3371,11 +3555,17 @@ pointToLineSegmentDistance(point, lineStart, lineEnd) {
         return;
     }
 
+    // Cannon crew groups cannot be manually disbanded
+    if (group.isCannonCrewGroup) {
+        console.log(`Cannot disband cannon crew group "${group.name}" manually`);
+        return;
+    }
+
     const entities = group.getEntities(this);
-    
+
     // Check if this is an enemy group (check first entity's faction)
     const isEnemyGroup = entities.length > 0 && entities[0].faction === 'red';
-    
+
     if (isEnemyGroup) {
         // Enemy group - kill all units
         console.log(`Enemy group "${group.name}" disbanded - killing all units`);
@@ -3397,7 +3587,7 @@ pointToLineSegmentDistance(point, lineStart, lineEnd) {
     selectGroup(groupId) {
         console.log(`selectGroup called with groupId=${groupId}`);
         console.log(`Available groups:`, this.groups.map(g => ({ id: g.id, name: g.name })));
-        
+
         const group = this.groups.find(g => g.id === groupId);
         if (!group) {
             console.log(`Group ${groupId} not found!`);
@@ -3406,9 +3596,60 @@ pointToLineSegmentDistance(point, lineStart, lineEnd) {
 
         console.log(`Found group: ${group.name}`);
         this.deselectAll();
+
+        // For cannon crew groups, also select the cannon
+        if (group.isCannonCrewGroup && typeof lightCannonManager !== 'undefined') {
+            const cannon = lightCannonManager.cannons.find(c => c.id === group.linkedCannonId);
+            if (cannon) {
+                lightCannonManager.selectCannon(cannon);
+            }
+        } else {
+            // Deselect cannon for normal groups
+            if (typeof lightCannonManager !== 'undefined') {
+                lightCannonManager.deselectCannon();
+            }
+        }
+
         const entities = group.getEntities(this);
         console.log(`Group has ${entities.length} entities`);
         this.selectEntities(entities, false);
+    }
+
+    createCannonCrewGroup(cannon) {
+        const name = `Cannon #${cannon.id}`;
+        const group = new Group(name, [], {
+            isCannonCrewGroup: true,
+            linkedCannonId: cannon.id
+        });
+        this.groups.push(group);
+        cannon.crewGroupId = group.id;
+        console.log(`Cannon crew group "${name}" created for cannon ${cannon.id}`);
+        return group;
+    }
+
+    syncCannonCrewGroup(cannon) {
+        if (cannon.crewGroupId === null) return;
+
+        const group = this.groups.find(g => g.id === cannon.crewGroupId);
+        if (!group) return;
+
+        // Sync entityIds with cannon's crewIds
+        group.entityIds = [...cannon.crewIds];
+
+        // Update groupId on all crew members
+        for (const crewId of cannon.crewIds) {
+            const entity = this.getEntity(crewId);
+            if (entity) entity.groupId = group.id;
+        }
+    }
+
+    dissolveCannonCrewGroup(cannon) {
+        if (cannon.crewGroupId === null) return;
+
+        // Remove group from list
+        this.groups = this.groups.filter(g => g.id !== cannon.crewGroupId);
+        console.log(`Cannon crew group dissolved for cannon ${cannon.id}`);
+        cannon.crewGroupId = null;
     }
 
 drawAll(ctx, camera) {
