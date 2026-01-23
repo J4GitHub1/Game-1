@@ -99,8 +99,8 @@ class Shell {
                 }
 
                 // Check cannon collision
-                if (typeof lightCannonManager !== 'undefined') {
-                    for (const cannon of lightCannonManager.cannons) {
+                if (typeof cannonManager !== 'undefined') {
+                    for (const cannon of cannonManager.cannons) {
                         if (cannon.isDying) continue;
                         const dx = cannon.x - this.x;
                         const dy = cannon.y - this.y;
@@ -185,35 +185,80 @@ class Shell {
         const screenX = this.x - camera.x;
         const screenY = this.y - camera.y;
 
-        // Draw trail (fading segments from oldest to newest)
-        if (this.trail.length > 1) {
-            for (let i = 0; i < this.trail.length - 1; i++) {
-                const p1 = this.trail[i];
-                const p2 = this.trail[i + 1];
-
-                // Calculate opacity (older = more transparent)
-                const opacity = (i / this.trail.length) * 0.6;
-
-                // Calculate line width (older = thinner)
-                const lineWidth = 1 + (i / this.trail.length) * 2;
-
-                ctx.strokeStyle = `rgba(100, 100, 100, ${opacity})`;
-                ctx.lineWidth = lineWidth;
-                ctx.beginPath();
-                ctx.moveTo(p1.x - camera.x, p1.y - camera.y);
-                ctx.lineTo(p2.x - camera.x, p2.y - camera.y);
-                ctx.stroke();
-            }
-
-            // Draw line from last trail point to current position
+        // Draw trail based on shell type
+        if (this.shellType === 'mortar_shell') {
+            // Mortar shell: fiery trail with flickering particles
             if (this.trail.length > 0) {
-                const lastTrail = this.trail[this.trail.length - 1];
-                ctx.strokeStyle = 'rgba(100, 100, 100, 0.6)';
-                ctx.lineWidth = 3;
+                for (let i = 0; i < this.trail.length; i++) {
+                    const p = this.trail[i];
+                    const progress = i / this.trail.length;
+
+                    // Fire colors: yellow core -> orange -> red -> dark smoke
+                    const baseRadius = 2 + progress * 4;
+                    const pX = p.x - camera.x;
+                    const pY = p.y - camera.y;
+
+                    // Add slight random offset for flickering effect
+                    const flickerX = (Math.random() - 0.5) * 2;
+                    const flickerY = (Math.random() - 0.5) * 2;
+
+                    // Outer glow (red/orange)
+                    const outerOpacity = (1 - progress * 0.7) * 0.4;
+                    ctx.fillStyle = `rgba(255, ${80 + progress * 60}, 0, ${outerOpacity})`;
+                    ctx.beginPath();
+                    ctx.arc(pX + flickerX, pY + flickerY, baseRadius * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Inner core (yellow/orange)
+                    const innerOpacity = (1 - progress * 0.5) * 0.6;
+                    ctx.fillStyle = `rgba(255, ${150 + progress * 50}, ${50 * progress}, ${innerOpacity})`;
+                    ctx.beginPath();
+                    ctx.arc(pX + flickerX * 0.5, pY + flickerY * 0.5, baseRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // Draw bright core at shell position
+                ctx.fillStyle = 'rgba(255, 200, 50, 0.8)';
                 ctx.beginPath();
-                ctx.moveTo(lastTrail.x - camera.x, lastTrail.y - camera.y);
-                ctx.lineTo(screenX, screenY);
-                ctx.stroke();
+                ctx.arc(screenX, screenY, 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = 'rgba(255, 255, 150, 0.9)';
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        } else {
+            // Cannon shell: smoke trail (original behavior)
+            if (this.trail.length > 1) {
+                for (let i = 0; i < this.trail.length - 1; i++) {
+                    const p1 = this.trail[i];
+                    const p2 = this.trail[i + 1];
+
+                    // Calculate opacity (older = more transparent)
+                    const opacity = (i / this.trail.length) * 0.6;
+
+                    // Calculate line width (older = thinner)
+                    const lineWidth = 1 + (i / this.trail.length) * 2;
+
+                    ctx.strokeStyle = `rgba(100, 100, 100, ${opacity})`;
+                    ctx.lineWidth = lineWidth;
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x - camera.x, p1.y - camera.y);
+                    ctx.lineTo(p2.x - camera.x, p2.y - camera.y);
+                    ctx.stroke();
+                }
+
+                // Draw line from last trail point to current position
+                if (this.trail.length > 0) {
+                    const lastTrail = this.trail[this.trail.length - 1];
+                    ctx.strokeStyle = 'rgba(100, 100, 100, 0.6)';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(lastTrail.x - camera.x, lastTrail.y - camera.y);
+                    ctx.lineTo(screenX, screenY);
+                    ctx.stroke();
+                }
             }
         }
 
@@ -222,26 +267,41 @@ class Shell {
         ctx.translate(screenX, screenY);
         ctx.rotate(this.heading);
 
-        // Shell body (elongated ellipse)
-        ctx.fillStyle = 'rgb(60, 60, 60)'; // Dark gray
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 6, 3, 0, 0, Math.PI * 2); // Length 12, width 6
-        ctx.fill();
+        if (this.shellType === 'mortar_shell') {
+            // Mortar shell: rounder, darker with fiery glow
+            ctx.fillStyle = 'rgb(40, 40, 40)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 4, 0, Math.PI * 2);
+            ctx.fill();
 
-        // Shell tip (pointed front)
-        ctx.fillStyle = 'rgb(80, 80, 80)';
-        ctx.beginPath();
-        ctx.moveTo(6, 0);      // Tip
-        ctx.lineTo(3, -2);     // Top corner
-        ctx.lineTo(3, 2);      // Bottom corner
-        ctx.closePath();
-        ctx.fill();
+            // Fiery rim
+            ctx.strokeStyle = 'rgba(255, 150, 50, 0.6)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, 5, 0, Math.PI * 2);
+            ctx.stroke();
+        } else {
+            // Cannon shell: elongated bullet shape (original)
+            ctx.fillStyle = 'rgb(60, 60, 60)';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 6, 3, 0, 0, Math.PI * 2);
+            ctx.fill();
 
-        // Highlight on top
-        ctx.fillStyle = 'rgba(150, 150, 150, 0.5)';
-        ctx.beginPath();
-        ctx.ellipse(-1, -1, 3, 1, 0, 0, Math.PI * 2);
-        ctx.fill();
+            // Shell tip (pointed front)
+            ctx.fillStyle = 'rgb(80, 80, 80)';
+            ctx.beginPath();
+            ctx.moveTo(6, 0);
+            ctx.lineTo(3, -2);
+            ctx.lineTo(3, 2);
+            ctx.closePath();
+            ctx.fill();
+
+            // Highlight on top
+            ctx.fillStyle = 'rgba(150, 150, 150, 0.5)';
+            ctx.beginPath();
+            ctx.ellipse(-1, -1, 3, 1, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         ctx.restore();
     }

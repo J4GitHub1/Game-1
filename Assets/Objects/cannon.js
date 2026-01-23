@@ -1,12 +1,74 @@
-// Light Cannon - Stationary artillery piece
+// Cannon - Stationary artillery piece (supports light and heavy variants)
 
-class LightCannon {
+class Cannon {
     static nextId = 0;
 
-    constructor(x, y, faction = 'none') {
-        this.id = LightCannon.nextId++;
+    // Type configurations for different cannon variants
+    static TYPES = {
+        light: {
+            weaponRange: 750,
+            reloadingBaseTime: 10,
+            explosionSize: 1,
+            speedDivisor: 2,
+            knockbackDistance: 5,
+            deathExplosionSize: 0.5,
+            shellType: 'cannon_shell',
+            skipFriendlyFireCheck: false,
+            accuracyMultiplier: 1.0,
+            // Visual dimensions
+            squareSize: 8,
+            carriageWidth: 8,
+            carriageHeight: 6,
+            barrelThickness: 3,
+            barrelExtendLeft: 2,
+            barrelExtendRight: 6
+        },
+        heavy: {
+            weaponRange: 1000,
+            reloadingBaseTime: 20,
+            explosionSize: 2,
+            speedDivisor: 2.75,
+            knockbackDistance: 7,
+            deathExplosionSize: 0.75,
+            shellType: 'cannon_shell',
+            skipFriendlyFireCheck: false,
+            accuracyMultiplier: 1.0,
+            // Visual dimensions
+            squareSize: 8,
+            carriageWidth: 12,
+            carriageHeight: 6,
+            barrelThickness: 4,
+            barrelExtendLeft: 4,
+            barrelExtendRight: 6
+        },
+        mortar: {
+            weaponRange: 750,
+            reloadingBaseTime: 10,
+            explosionSize: 1,
+            speedDivisor: 2,
+            knockbackDistance: 5,
+            deathExplosionSize: 0.5,
+            shellType: 'mortar_shell',
+            skipFriendlyFireCheck: true, // Mortar shells arc over allies
+            accuracyMultiplier: 3.0, // 3x less accurate than cannons (indirect fire)
+            // Visual dimensions (same as light, but shorter barrel)
+            squareSize: 8,
+            carriageWidth: 8,
+            carriageHeight: 6,
+            barrelThickness: 4,
+            barrelExtendLeft: 0,
+            barrelExtendRight: 3
+        }
+    };
+
+    constructor(x, y, faction = 'none', type = 'light') {
+        this.id = Cannon.nextId++;
         this.x = x;
         this.y = y;
+        this.type = type;
+
+        // Get configuration for this cannon type
+        const config = Cannon.TYPES[type] || Cannon.TYPES.light;
 
         // Faction: 'none', 'blue', or 'red'
         this.faction = faction;
@@ -15,6 +77,14 @@ class LightCannon {
         this.radius = 4;
         this.barrelLength = 7;
         this.heading = 0; // Direction the cannon faces (radians)
+
+        // Type-specific visual properties
+        this.squareSize = config.squareSize;
+        this.carriageWidth = config.carriageWidth;
+        this.carriageHeight = config.carriageHeight;
+        this.barrelThickness = config.barrelThickness;
+        this.barrelExtendLeft = config.barrelExtendLeft;
+        this.barrelExtendRight = config.barrelExtendRight;
 
         // Selection state
         this.isSelected = false;
@@ -50,6 +120,9 @@ class LightCannon {
         this.isRotating = false;
         this.rotationSpeed = Math.PI * 0.5; // radians/second (slower, realistic artillery)
 
+        // Type-specific movement
+        this.speedDivisor = config.speedDivisor;
+
         // TARGETING SYSTEM
         this.lockedTarget = null;              // Current target entity (auto or manual)
         this.hasManualTarget = false;          // Flag: manual override active?
@@ -61,7 +134,7 @@ class LightCannon {
 
         // FIELD OF VIEW
         this.viewAngle = (160 * Math.PI) / 180; // 160° FOV in radians
-        this.weaponRange = 750;                // Maximum engagement range
+        this.weaponRange = config.weaponRange;  // Maximum engagement range (type-specific)
         this.minimumRange = 100;               // Minimum engagement range (shell immunity)
 
         // SHOOTING SYSTEM
@@ -73,21 +146,40 @@ class LightCannon {
         // RELOAD SYSTEM
         this.reloadTimer = 0;                  // Current reload progress (seconds)
         this.reloadDuration = 0;               // Target reload time (calculated)
-        this.reloadingBaseTime = 10;           // Base reload: 10 seconds
+        this.reloadingBaseTime = config.reloadingBaseTime; // Base reload (type-specific)
         this.noCrewLogged = false;             // Prevent "NO CREW" log spam
 
-        // ACCURACY & EFFECTS (placeholders for Steps 2-3)
+        // ACCURACY & EFFECTS
         this.cannonAccuracyModifier = 0.15;
+        this.accuracyMultiplier = config.accuracyMultiplier || 1.0; // Type-specific accuracy multiplier
         this.smokeCloudCount = 0;
         this.accuracyDebuffTimer = 0;
         this.accuracyBuffTimer = 0;
         this.muzzleFlashTimer = 0;
         this.smokePuffs = [];
 
-        // Shell explosion size
-        this.explosionSize = 1.5;              // Shell blast radius multiplier
+        // Shell explosion size (type-specific)
+        this.explosionSize = config.explosionSize;
 
-        console.log(`LightCannon ${this.id} spawned at (${x}, ${y}) with faction: ${faction}`);
+        // Death explosion size (type-specific)
+        this.deathExplosionSize = config.deathExplosionSize;
+
+        // Knockback distance (type-specific)
+        this.knockbackDistance = config.knockbackDistance;
+
+        // Shell type (type-specific)
+        this.shellType = config.shellType;
+
+        // Whether to skip friendly fire check (mortars arc over allies)
+        this.skipFriendlyFireCheck = config.skipFriendlyFireCheck;
+
+        const typeName = type.charAt(0).toUpperCase() + type.slice(1);
+        console.log(`${typeName} Cannon ${this.id} spawned at (${x}, ${y}) with faction: ${faction}`);
+    }
+
+    // Get display name for this cannon type
+    getTypeName() {
+        return this.type.charAt(0).toUpperCase() + this.type.slice(1) + ' Cannon';
     }
 
     // Get color based on faction
@@ -619,7 +711,7 @@ class LightCannon {
         if (validCrew === 0) return 0;
 
         const avgSpeed = totalSpeed / validCrew;
-        const baseSpeed = avgSpeed / 2;
+        const baseSpeed = avgSpeed / this.speedDivisor; // Use type-specific speed divisor
 
         // -20% for each missing crew member
         const missingCrew = this.maxCrew - validCrew;
@@ -786,9 +878,10 @@ class LightCannon {
             !e.isDying
         );
 
+        // Get friendly cannons from the unified manager
         let friendlyCannons = [];
-        if (typeof lightCannonManager !== 'undefined') {
-            friendlyCannons = lightCannonManager.cannons.filter(c =>
+        if (typeof cannonManager !== 'undefined') {
+            friendlyCannons = cannonManager.cannons.filter(c =>
                 c.faction === this.faction &&
                 !c.isDying &&
                 c.id !== this.id
@@ -825,8 +918,8 @@ class LightCannon {
     }
 
     applyKnockback() {
-        const knockbackX = this.x - Math.cos(this.heading) * 5;
-        const knockbackY = this.y - Math.sin(this.heading) * 5;
+        const knockbackX = this.x - Math.cos(this.heading) * this.knockbackDistance;
+        const knockbackY = this.y - Math.sin(this.heading) * this.knockbackDistance;
 
         if (typeof TerrainManager !== 'undefined') {
             const terrain = TerrainManager.getTerrainType(knockbackX, knockbackY);
@@ -840,7 +933,7 @@ class LightCannon {
                 console.log(`Cannon ${this.id}: Knockback into water - cannon destroyed!`);
                 this.x = knockbackX;
                 this.y = knockbackY;
-                this.moveCrewWithKnockback(-Math.cos(this.heading) * 5, -Math.sin(this.heading) * 5);
+                this.moveCrewWithKnockback(-Math.cos(this.heading) * this.knockbackDistance, -Math.sin(this.heading) * this.knockbackDistance);
                 this.health = 0;
                 this.startDying();
                 return;
@@ -849,7 +942,7 @@ class LightCannon {
 
         this.x = knockbackX;
         this.y = knockbackY;
-        this.moveCrewWithKnockback(-Math.cos(this.heading) * 5, -Math.sin(this.heading) * 5);
+        this.moveCrewWithKnockback(-Math.cos(this.heading) * this.knockbackDistance, -Math.sin(this.heading) * this.knockbackDistance);
     }
 
     moveCrewWithKnockback(offsetX, offsetY) {
@@ -869,11 +962,6 @@ class LightCannon {
         const missingCrew = this.maxCrew - currentCrew;
 
         // Formula: baseTime × (1 + missingCrew × 0.5)
-        // 5/5 crew: 10 × (1 + 0 × 0.5) = 10s
-        // 4/5 crew: 10 × (1 + 1 × 0.5) = 15s
-        // 3/5 crew: 10 × (1 + 2 × 0.5) = 20s
-        // 2/5 crew: 10 × (1 + 3 × 0.5) = 25s
-        // 1/5 crew: 10 × (1 + 4 × 0.5) = 30s
         const reloadTime = this.reloadingBaseTime * (1 + (missingCrew * 0.5));
 
         console.log(`Cannon ${this.id}: Reload time calculated: ${reloadTime.toFixed(1)}s (${currentCrew}/${this.maxCrew} crew)`);
@@ -910,27 +998,41 @@ class LightCannon {
 
         const dx = this.lockedTarget.x - this.x;
         const dy = this.lockedTarget.y - this.y;
+        const distanceToTarget = Math.sqrt(dx * dx + dy * dy);
         const baseAngle = Math.atan2(dy, dx);
 
-        const shotConeAngle = this.calculateShotCone();
+        // Apply accuracy multiplier (mortars have 3x inaccuracy)
+        const shotConeAngle = this.calculateShotCone() * this.accuracyMultiplier;
         const randomDeviation = (Math.random() - 0.5) * shotConeAngle;
         const adjustedAngle = baseAngle + randomDeviation;
 
-        const aimX = this.x + Math.cos(adjustedAngle) * this.weaponRange;
-        const aimY = this.y + Math.sin(adjustedAngle) * this.weaponRange;
+        // Calculate aim point based on shell type
+        let aimX, aimY;
+        if (this.shellType === 'mortar_shell') {
+            // Mortar: indirect fire - aim at target distance with deviation (shell "falls from above")
+            aimX = this.x + Math.cos(adjustedAngle) * distanceToTarget;
+            aimY = this.y + Math.sin(adjustedAngle) * distanceToTarget;
+        } else {
+            // Cannon: direct fire - shell travels to max range
+            aimX = this.x + Math.cos(adjustedAngle) * this.weaponRange;
+            aimY = this.y + Math.sin(adjustedAngle) * this.weaponRange;
+        }
 
         console.log(`Cannon ${this.id}: Firing with ${(randomDeviation * 180 / Math.PI).toFixed(1)}° deviation`);
 
-        const blockingAllies = this.countAlliesInLineOfFire(aimX, aimY, allEntities);
-        if (blockingAllies >= 3) {
-            console.log(`Cannon ${this.id}: Shot blocked - ${blockingAllies} allies in line of fire`);
-            this.shootCooldown = 1.5;
-            return;
+        // Check for allies in line of fire (skip for mortars - they arc over)
+        if (!this.skipFriendlyFireCheck) {
+            const blockingAllies = this.countAlliesInLineOfFire(aimX, aimY, allEntities);
+            if (blockingAllies >= 1) {
+                console.log(`Cannon ${this.id}: Shot blocked - ${blockingAllies} allies in line of fire`);
+                this.shootCooldown = 1.5;
+                return;
+            }
         }
 
         if (typeof shellManager !== 'undefined') {
-            shellManager.addShell(this.x, this.y, aimX, aimY, 'cannon_shell', this.explosionSize, this.faction);
-            console.log(`Cannon ${this.id}: Shell spawned`);
+            shellManager.addShell(this.x, this.y, aimX, aimY, this.shellType, this.explosionSize, this.faction);
+            console.log(`Cannon ${this.id}: ${this.shellType} spawned`);
         }
 
         this.applyKnockback();
@@ -1003,12 +1105,13 @@ class LightCannon {
         ctx.translate(screenX, screenY);
         ctx.rotate(this.heading);
 
-        const squareSize = 8;
-        const carriageWidth = 12;
-        const carriageHeight = 6;
-        const barrelThickness = 4;
-        const barrelExtendLeft = 4;
-        const barrelExtendRight = 6;
+        // Use type-specific visual dimensions
+        const squareSize = this.squareSize;
+        const carriageWidth = this.carriageWidth;
+        const carriageHeight = this.carriageHeight;
+        const barrelThickness = this.barrelThickness;
+        const barrelExtendLeft = this.barrelExtendLeft;
+        const barrelExtendRight = this.barrelExtendRight;
 
         ctx.fillStyle = color;
 
@@ -1205,9 +1308,9 @@ class LightCannon {
         this.isDying = true;
         this.deathTimer = 0;
 
-        // Spawn explosion on death (size 0.5, no burn)
+        // Spawn explosion on death (type-specific size)
         if (typeof explosionManager !== 'undefined') {
-            explosionManager.addExplosion(this.x, this.y, 0.5, false);
+            explosionManager.addExplosion(this.x, this.y, this.deathExplosionSize, false);
             console.log(`Cannon ${this.id} destroyed - explosion spawned`);
         }
 
@@ -1256,20 +1359,21 @@ class LightCannon {
     }
 }
 
-// Manager class for handling multiple cannons
-class LightCannonManager {
+// Manager class for handling multiple cannons (all types)
+class CannonManager {
     constructor() {
         this.cannons = [];
         this.selectedCannon = null; // Only one cannon can be selected at a time
     }
 
-    addCannon(x, y, faction = 'none') {
-        const cannon = new LightCannon(x, y, faction);
+    addCannon(x, y, faction = 'none', type = 'light') {
+        const cannon = new Cannon(x, y, faction, type);
 
         // Create linked capture objective (object type)
+        const typeName = type.charAt(0).toUpperCase() + type.slice(1);
         const objective = captureObjectiveManager.addObjective(x, y, {
             objective_type: 'object',
-            objective_name: `Light Cannon ${cannon.id}`,
+            objective_name: `${typeName} Cannon ${cannon.id}`,
             linkedObject: cannon
         });
 
@@ -1378,9 +1482,9 @@ class LightCannonManager {
 }
 
 // Create global manager instance
-const lightCannonManager = new LightCannonManager();
+const cannonManager = new CannonManager();
 
 // Export for use in other files
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { LightCannon, LightCannonManager, lightCannonManager };
+    module.exports = { Cannon, CannonManager, cannonManager };
 }

@@ -379,7 +379,7 @@ const createGroupBtn = document.getElementById('createGroupBtn');
 
 function updateUnitInfo() {
     const selected = entityManager.selectedEntities;
-    const selectedCannon = lightCannonManager.getSelectedCannon();
+    const selectedCannon = cannonManager.getSelectedCannon();
 
     // Check if a cannon is selected - use object info panel
     if (selectedCannon) {
@@ -390,7 +390,7 @@ function updateUnitInfo() {
         entityManager.formationPreview.active = false;
 
         // Display cannon info in object panel
-        objectInfoType.textContent = 'Light Cannon';
+        objectInfoType.textContent = selectedCannon.getTypeName();
         objectInfoId.textContent = `#${selectedCannon.id}`;
 
         // Faction with color
@@ -608,12 +608,12 @@ function updateGroupTabs() {
     const friendlyGroups = [];
     const enemyGroups = [];
 
-    for (const group of entityManager.groups) {
+    for (const group of entityManager.groups) { //ASK CLAUDE
         let faction = 'blue'; // default
 
         if (group.isCannonCrewGroup) {
             // Get faction from linked cannon
-            const cannon = lightCannonManager.cannons.find(c => c.id === group.linkedCannonId);
+            const cannon = cannonManager.cannons.find(c => c.id === group.linkedCannonId);
             faction = cannon?.faction ?? 'none';
             // Skip if cannon is neutral (shouldn't happen but just in case)
             if (faction === 'none') continue;
@@ -1127,7 +1127,7 @@ function drawFormationMoveIndicator() {
 }
 
 function drawCannonMoveIndicator() {
-    const selectedCannon = lightCannonManager.getSelectedCannon();
+    const selectedCannon = cannonManager.getSelectedCannon();
     if (!isCannonMoving || !selectedCannon || selectedCannon.isDying) return;
 
     const targetX = selectedCannon.x + Math.cos(cannonMoveAngle) * cannonMoveDistance;
@@ -1274,8 +1274,8 @@ function gameLoop() {
     // Update capture objectives
     captureObjectiveManager.updateAll(deltaTime, entityManager.getAllEntities());
 
-    // Update light cannons
-    lightCannonManager.updateAll(deltaTime, entityManager.getAllEntities());
+    // Update cannons
+    cannonManager.updateAll(deltaTime, entityManager.getAllEntities());
 
     // DRAWING PHASE
     t0 = performance.now();
@@ -1338,8 +1338,8 @@ function gameLoop() {
     t1 = performance.now();
     timings['Draw halos'] = (t1 - t0).toFixed(2) + 'ms';
 
-    // Draw light cannons
-    lightCannonManager.drawAll(ctx, camera);
+    // Draw cannons
+    cannonManager.drawAll(ctx, camera);
 
     // Draw objective cones (O key toggle)
     if (showObjectiveCones) {
@@ -1616,8 +1616,8 @@ window.addEventListener('keydown', (e) => {
     }
 
     // Ctrl+Arrow key movement for selected cannon
-    if (e.ctrlKey) {
-        const selectedCannon = lightCannonManager.getSelectedCannon();
+    if (e.ctrlKey) { //ASK CLAUDE
+        const selectedCannon = cannonManager.getSelectedCannon();
         if (selectedCannon && !selectedCannon.isDying && selectedCannon.crewIds.length > 0) {
             let angle = null;
 
@@ -1773,7 +1773,7 @@ function validateFormationArrowMovement() {
 }
 
 function executeCannonMovement() {
-    const selectedCannon = lightCannonManager.getSelectedCannon();
+    const selectedCannon = cannonManager.getSelectedCannon();
     if (!selectedCannon || selectedCannon.isDying || selectedCannon.crewIds.length === 0) return;
 
     if (!cannonMoveIsValid) {
@@ -1813,8 +1813,8 @@ function executeCannonMovement() {
     console.log(`Cannon ${selectedCannon.id} moved ${cannonMoveDistance}px at angle ${(cannonMoveAngle * 180 / Math.PI).toFixed(0)}°`);
 }
 
-function validateCannonArrowMovement() {
-    const selectedCannon = lightCannonManager.getSelectedCannon();
+function validateCannonArrowMovement() { //ASK CLAUDE
+    const selectedCannon = cannonManager.getSelectedCannon();
     if (!selectedCannon || selectedCannon.isDying) return true;
 
     const targetX = selectedCannon.x + Math.cos(cannonMoveAngle) * cannonMoveDistance;
@@ -1954,8 +1954,16 @@ canvas.addEventListener('mousedown', (e) => {
 
             if (objectiveSpawnType === 'light_cannon') {
                 // Spawn light cannon (automatically creates linked capture objective)
-                lightCannonManager.addCannon(worldX, worldY, 'none');
+                cannonManager.addCannon(worldX, worldY, 'none', 'light');
                 console.log(`Light Cannon spawned at (${Math.floor(worldX)}, ${Math.floor(worldY)})`);
+            } else if (objectiveSpawnType === 'heavy_cannon') {
+                // Spawn heavy cannon (automatically creates linked capture objective)
+                cannonManager.addCannon(worldX, worldY, 'none', 'heavy');
+                console.log(`Heavy Cannon spawned at (${Math.floor(worldX)}, ${Math.floor(worldY)})`);
+            } else if (objectiveSpawnType === 'mortar_cannon') {
+                // Spawn mortar (automatically creates linked capture objective)
+                cannonManager.addCannon(worldX, worldY, 'none', 'mortar');
+                console.log(`Mortar spawned at (${Math.floor(worldX)}, ${Math.floor(worldY)})`);
             } else {
                 // Spawn regular capture objective (flag)
                 const options = {
@@ -2013,7 +2021,7 @@ canvas.addEventListener('mousedown', (e) => {
             canvas.style.cursor = 'crosshair';
         } else {
             // Check if cannon is selected FIRST (cannon takes priority over crew selection)
-            const selectedCannon = lightCannonManager.getSelectedCannon();
+            const selectedCannon = cannonManager.getSelectedCannon(); //ASK CLAUDE
             if (selectedCannon && !selectedCannon.isDying) {
                 const clickedEntity = entityManager.getEntityAtPosition(worldX, worldY);
 
@@ -2109,14 +2117,14 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     // Check for cannon click first (cannons have priority)
-    const clickedCannon = lightCannonManager.getCannonAt(worldX, worldY);
+    const clickedCannon = cannonManager.getCannonAt(worldX, worldY); //ASK CLAUDE
 
     if (clickedCannon) {
         // Deselect all entities first
         entityManager.deselectAll();
 
         // Select the cannon
-        lightCannonManager.selectCannon(clickedCannon);
+        cannonManager.selectCannon(clickedCannon); //ASK CLAUDE
 
         // Auto-select all crew members
         for (const crewId of clickedCannon.crewIds) {
@@ -2132,7 +2140,7 @@ canvas.addEventListener('mousedown', (e) => {
 
         if (clickedEntity) {
             // Deselect cannon when selecting entity
-            lightCannonManager.deselectCannon();
+            cannonManager.deselectCannon();
 
             const additive = e.ctrlKey;
             entityManager.selectEntity(clickedEntity, additive);
@@ -2218,19 +2226,19 @@ window.addEventListener('mouseup', (e) => {
 
         // If entities found, select them (deselect cannon)
         if (selectedEntities.length > 0) {
-            lightCannonManager.deselectCannon();
+            cannonManager.deselectCannon();
             const additive = e.ctrlKey;
             entityManager.selectEntities(selectedEntities, additive);
         } else {
             // No entities - check for cannons (lowest priority)
-            const selectedCannons = lightCannonManager.getCannonsInRect(worldX1, worldY1, worldX2, worldY2);
+            const selectedCannons = cannonManager.getCannonsInRect(worldX1, worldY1, worldX2, worldY2); //ASK CLAUDE
 
             if (selectedCannons.length === 1) {
                 const cannon = selectedCannons[0];
 
                 // Deselect all entities first
                 entityManager.deselectAll();
-                lightCannonManager.selectCannon(cannon);
+                cannonManager.selectCannon(cannon); //ASK CLAUDE
 
                 // Auto-select all crew members
                 for (const crewId of cannon.crewIds) {
@@ -2241,7 +2249,7 @@ window.addEventListener('mouseup', (e) => {
                 }
             } else {
                 // No cannon or multiple cannons - just deselect
-                lightCannonManager.deselectCannon();
+                cannonManager.deselectCannon();
                 entityManager.deselectAll();
             }
         }

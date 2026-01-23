@@ -845,8 +845,8 @@ const combinedForce = {
 
     // CANNON CREW BEHAVIOR - crew follows cannon when outside capture radius
     // Skip all crew behavior when panicking - let them run free
-    if (this.isCrewMember && this.assignedCannonId !== null && !this.isPanicking && typeof lightCannonManager !== 'undefined') {
-        const cannon = lightCannonManager.cannons.find(c => c.id === this.assignedCannonId);
+    if (this.isCrewMember && this.assignedCannonId !== null && !this.isPanicking && typeof cannonManager !== 'undefined') { //ASK CLAUDE
+        const cannon = cannonManager.cannons.find(c => c.id === this.assignedCannonId);
         if (cannon && cannon.captureObjective) {
             const captureRadius = cannon.captureObjective.capture_radius;
             const dx = this.x - cannon.x;
@@ -2897,7 +2897,7 @@ moveTo(x, y) {
         
         // Draw crew assignment line (magenta dashed) if crew member is selected
         if (this.isCrewMember && this.assignedCannonId !== null && this.isSelected && !this.isDying) {
-            const cannon = lightCannonManager.cannons.find(c => c.id === this.assignedCannonId);
+            const cannon = cannonManager.cannons.find(c => c.id === this.assignedCannonId); //ASK CLAUDE
             if (cannon && !cannon.isDying) {
                 const cannonScreenX = cannon.x - camera.x;
                 const cannonScreenY = cannon.y - camera.y;
@@ -3133,7 +3133,7 @@ updateAll(deltaTime) {
 
         // Remove from cannon crew if assigned
         if (deadEntity.isCrewMember && deadEntity.assignedCannonId !== null) {
-            const cannon = lightCannonManager.cannons.find(c => c.id === deadEntity.assignedCannonId);
+            const cannon = cannonManager.cannons.find(c => c.id === deadEntity.assignedCannonId); //ASK CLAUDE
             if (cannon) {
                 cannon.crewIds = cannon.crewIds.filter(id => id !== deadEntity.id);
                 console.log(`Entity ${deadEntity.id} removed from cannon ${cannon.id} crew (died)`);
@@ -3285,8 +3285,8 @@ propagateDistress(deadEntity) {
 
     // Check if cannon is selected and can move
     let selectedCannon = null;
-    if (typeof lightCannonManager !== 'undefined') {
-        selectedCannon = lightCannonManager.getSelectedCannon();
+    if (typeof cannonManager !== 'undefined') { //ASK CLAUDE
+        selectedCannon = cannonManager.getSelectedCannon();
         if (selectedCannon && (selectedCannon.faction === 'none' || selectedCannon.crewIds.length === 0)) {
             selectedCannon = null; // Can't move: no faction or no crew
         }
@@ -3379,9 +3379,9 @@ moveEntitiesInFormation(centerX, centerY) {
     const movableEntities = this.selectedEntities.filter(e => !e.isCrewMember);
 
     // Check if cannon is selected and can move
-    let selectedCannon = null;
-    if (typeof lightCannonManager !== 'undefined') {
-        selectedCannon = lightCannonManager.getSelectedCannon();
+    let selectedCannon = null; //ASK CLAUDE
+    if (typeof cannonManager !== 'undefined') {
+        selectedCannon = cannonManager.getSelectedCannon();
         if (selectedCannon && (selectedCannon.faction === 'none' || selectedCannon.crewIds.length === 0)) {
             selectedCannon = null;
         }
@@ -3598,15 +3598,15 @@ pointToLineSegmentDistance(point, lineStart, lineEnd) {
         this.deselectAll();
 
         // For cannon crew groups, also select the cannon
-        if (group.isCannonCrewGroup && typeof lightCannonManager !== 'undefined') {
-            const cannon = lightCannonManager.cannons.find(c => c.id === group.linkedCannonId);
+        if (group.isCannonCrewGroup && typeof cannonManager !== 'undefined') { //ASK CLAUDE
+            const cannon = cannonManager.cannons.find(c => c.id === group.linkedCannonId);
             if (cannon) {
-                lightCannonManager.selectCannon(cannon);
+                cannonManager.selectCannon(cannon);
             }
         } else {
             // Deselect cannon for normal groups
-            if (typeof lightCannonManager !== 'undefined') {
-                lightCannonManager.deselectCannon();
+            if (typeof cannonManager !== 'undefined') { //ASK CLAUDE
+                cannonManager.deselectCannon();
             }
         }
 
