@@ -49,6 +49,9 @@ class Explosion {
         if (!this.effectsApplied) {
             this.applyEffects(entities, fireManager);
             this.effectsApplied = true;
+
+            // Create soundwave (loudness = 4x explosion size)
+            soundwaveManager.createSoundwave(this.x, this.y, this.explosion_size * 4);
         }
         
         // Check if animation is complete

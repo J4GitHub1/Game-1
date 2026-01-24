@@ -1277,6 +1277,9 @@ function gameLoop() {
     // Update cannons
     cannonManager.updateAll(deltaTime, entityManager.getAllEntities());
 
+    // Update soundwaves
+    soundwaveManager.updateAll(deltaTime, entityManager.getAllEntities(), cannonManager.cannons);
+
     // DRAWING PHASE
     t0 = performance.now();
     drawBackground();
@@ -1524,6 +1527,9 @@ function gameLoop() {
     // Draw capture objectives
     captureObjectiveManager.drawAll(ctx, camera);
 
+    // Draw soundwaves
+    soundwaveManager.drawAll(ctx, camera);
+
     // Draw UI elements
     t0 = performance.now();
     entityManager.drawFormationPreview(ctx, camera);
@@ -1586,6 +1592,11 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'p' || e.key === 'P') {
         showBulletRays = !showBulletRays;
         console.log('Bullet ray visualization:', showBulletRays ? 'ON' : 'OFF');
+    }
+
+    if (e.key === 'x' || e.key === 'X') {
+        showSoundwaves = !showSoundwaves;
+        console.log('Soundwave visualization:', showSoundwaves ? 'ON' : 'OFF');
     }
 
     if (e.ctrlKey && entityManager.selectedEntities.length > 1) {

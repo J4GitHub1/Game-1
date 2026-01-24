@@ -119,6 +119,8 @@ class Entity {
         
         // NEW ATTRIBUTES
         this.mounted = false; // Whether unit is mounted (horse, etc.)
+        this.cavalrySoundTimer = 0; // Timer for cavalry hoofbeat soundwaves
+        this.cavalrySoundTimerRandom = Math.random() * 0.5; // Random offset to desync sounds
         this.leader = false; // Whether unit is a leader/officer
         this.item = null; // Inventory item (grenades, etc.) - default: none
         
@@ -326,6 +328,9 @@ class Entity {
         this.isPanicking = true;
         console.log(`Entity ${this.id} is panicking!`);
 
+        // Create panic scream soundwave
+        soundwaveManager.createSoundwave(this.x, this.y, 0.25);
+
         // Clear AI state when entering panic
         this.aiControlled = false;
         this.aiTargetX = null;
@@ -485,7 +490,17 @@ class Entity {
     // Handle movement with push mechanics
     if (this.isMoving && this.targetX !== null && this.targetY !== null) {
         this.isStationary = false;
-        
+
+        // Cavalry hoofbeat soundwave every 1-2 seconds while moving
+        if (this.mounted) {
+            this.cavalrySoundTimer += deltaTime;
+            if (this.cavalrySoundTimer >= 1.0 + this.cavalrySoundTimerRandom) {
+                soundwaveManager.createSoundwave(this.x, this.y, 1);
+                this.cavalrySoundTimer = 0;
+                this.cavalrySoundTimerRandom = Math.random() * 1; // Re-randomize for next interval
+            }
+        }
+
         const dx = this.targetX - this.x;
         const dy = this.targetY - this.y;
         const distanceToTarget = Math.sqrt(dx * dx + dy * dy);
@@ -2255,6 +2270,7 @@ fireNormal(allEntities) {
         // Raise distress on being hit (multiplied if flanked)
         let distressIncrease = 10;
         if (isFlanking) {
+            soundwaveManager.createSoundwave(hitEntity.x, hitEntity.y, 0.25); // Louder soundwave for flanking
             distressIncrease *= 1.5; // Flanking modifier
             console.log(`Entity ${hitEntity.id} FLANKED by entity ${this.id}! Distress x1.5`);
         }
@@ -2277,7 +2293,10 @@ fireNormal(allEntities) {
     this.shotsInBurst++;
     
     console.log(`Entity ${this.id} fired! Magazine: ${this.ranged_magazine_current}/${this.ranged_magazine_max}`);
-    
+
+    // Create gunshot soundwave
+    soundwaveManager.createSoundwave(this.x, this.y, 5);
+
     // Set cooldown
     this.shootCooldown = 1.5;
     
@@ -2387,6 +2406,9 @@ fireBurst(allEntities) {
 
     this.ranged_magazine_current--;
     this.shotsInBurst++;
+
+    // Create gunshot soundwave
+    soundwaveManager.createSoundwave(this.x, this.y, 1);
 
     if (typeof showBulletRays !== 'undefined' && showBulletRays) {
         this.bulletRays.push({
@@ -2515,6 +2537,9 @@ fireScatter(allEntities) {
     this.isReloading = true;
     this.reloadTimer = 0;
     this.shootCooldown = this.ranged_cooldown;
+
+    // Create gunshot soundwave (one soundwave for all scatter pellets)
+    soundwaveManager.createSoundwave(this.x, this.y, 1);
 
     setTimeout(() => { this.isShooting = false; }, 100);
 }

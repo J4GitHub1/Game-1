@@ -122,10 +122,12 @@ class LeaderHalo {
                     this.hooraysCircleRadius = 0;
                     this.hooraysAffectedUnits.clear();
                     console.log(`LeaderHalo ${this.id} activated HOORAY mode (avg distress: ${avgDistress.toFixed(1)})`);
+                    // Leader shout soundwave
+                    soundwaveManager.createSoundwave(this.leader.x, this.leader.y, 0.5);
                     return true;
                 }
             }
-            
+
             // Check if should transition to engage
             if (this.engageCooldown <= 0) {
                 const engagingCount = unitsInRadius.filter(u => this.isEngaging(u)).length;
@@ -134,6 +136,8 @@ class LeaderHalo {
                     this.engageCircleRadius = 0;
                     this.engageAffectedUnits.clear();
                     console.log(`LeaderHalo ${this.id} activated ENGAGE mode (${engagingCount}/${unitsInRadius.length} engaging)`);
+                    // Leader shout soundwave
+                    soundwaveManager.createSoundwave(this.leader.x, this.leader.y, 0.5);
                     return true;
                 }
             }

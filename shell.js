@@ -355,6 +355,10 @@ class ShellManager {
     addShell(x, y, aimX, aimY, shellType, explosionSize, faction) {
         const shell = new Shell(x, y, aimX, aimY, shellType, explosionSize, faction);
         this.shells.push(shell);
+
+        // Create soundwave where shell spawns (cannon firing sound)
+        soundwaveManager.createSoundwave(x, y, 10);
+
         return shell;
     }
 
