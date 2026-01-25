@@ -127,6 +127,7 @@ class Cannon {
         this.lockedTarget = null;              // Current target entity (auto or manual)
         this.hasManualTarget = false;          // Flag: manual override active?
         this.manualTarget = null;              // Reference to manually targeted entity
+        this.holdFire = false;                 // Toggle to prevent firing while maintaining other behaviors
 
         // TARGET COOLDOWN (prevent jitter)
         this.targetLockTimer = 0;              // Counts up to targetLockDuration
@@ -415,7 +416,7 @@ class Cannon {
                 this.shotDelayTimer -= deltaTime;
                 if (this.shotDelayTimer <= 0) {
                     this.shotDelayTimer = 0;
-                    if (this.canFire()) {
+                    if (this.canFire() && !this.holdFire) {
                         this.fire(allEntities);
                     }
                 }
@@ -1331,6 +1332,10 @@ class Cannon {
                 entity.isCrewMember = false;
                 entity.assignedCannonId = null;
                 entity.groupId = null;
+                // Red crew returns to offensive stance when cannon is destroyed
+                if (entity.faction === 'red') {
+                    entity.stance = 'offensive';
+                }
                 console.log(`Entity ${entity.id} released from destroyed cannon ${this.id}`);
             }
         }

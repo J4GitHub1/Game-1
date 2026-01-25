@@ -561,6 +561,27 @@ input[type="text"] {
     border-color: rgb(100, 255, 100);
 }
 
+.holdfire-container {
+    margin-top: 8px;
+    display: flex;
+    justify-content: center;
+}
+
+.stance-btn.holdfire-btn.active {
+    background-color: rgba(220, 180, 50, 0.8);
+    border-color: rgb(255, 220, 80);
+}
+
+/* Cannon mode - hide stance header and buttons, only show hold fire */
+.stance-hud.cannon-mode .stance-hud-header,
+.stance-hud.cannon-mode .stance-buttons {
+    display: none;
+}
+
+.stance-hud.cannon-mode .holdfire-container {
+    margin-top: 0;
+}
+
 .stance-label {
     user-select: none;
     pointer-events: none;

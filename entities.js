@@ -58,6 +58,7 @@ class Entity {
         this.targetLockTimer = 0; // Timer for re-picking random targets in 'none' stance
         this.targetLockDuration = 3 + Math.random() * 2; // 3-5 seconds between re-picks
         this.hasManualTarget = false; // Flag for player-issued targeted fire command
+        this.holdFire = false; // Toggle to prevent firing while maintaining other behaviors
 
         // AI Auto-engagement system (offensive stance)
         this.aiControlled = false;          // Whether AI is currently controlling this unit
@@ -75,6 +76,11 @@ class Entity {
         this.retreatInterval = 0.5;           // Check every 0.5 seconds
         this.retreatStartX = null;            // Position when retreat started (for distance tracking)
         this.retreatStartY = null;
+
+        // Flanking system (moving toward flank option tiles)
+        this.flanking = false;               // Whether unit is flanking
+        this.flankX = null;                  // Target flank position X
+        this.flankY = null;                  // Target flank position Y
 
         // Combat state
         this.isShooting = false;
@@ -200,7 +206,12 @@ class Entity {
             if (this.speedBuffActive) {
                 speed *= 1.1; // +10% from halo
             }
-            
+
+            // Apply flanking speed bonus (30% boost)
+            if (this.flanking) {
+                speed *= 1.3; // +30% from flanking
+            }
+
             // Apply mounted speed debuffs (stacking)
             if (this.mounted) {
                 const hitDebuffPercent = this.mountedHitDebuffStacks * 0.10; // 10% per stack
@@ -218,6 +229,58 @@ class Entity {
             
             this.movement_speed = speed;
         }
+    }
+
+    // Activate flanking mode - find closest flank option tile and move toward it
+    activateFlank() {
+        // Check if heatmapManager exists and has tiles with flankOption
+        if (typeof heatmapManager === 'undefined') return false;
+
+        // Find all tiles with flankOption = true
+        const flankTiles = [];
+        for (let y = 0; y < heatmapManager.gridSize; y++) {
+            for (let x = 0; x < heatmapManager.gridSize; x++) {
+                const tile = heatmapManager.tiles[y][x];
+                if (tile.flankOption) {
+                    flankTiles.push(tile);
+                }
+            }
+        }
+
+        // No flank options available
+        if (flankTiles.length === 0) return false;
+
+        // Find closest flank tile to this entity
+        let closestTile = null;
+        let closestDistSq = Infinity;
+
+        for (const tile of flankTiles) {
+            const dx = tile.centerX - this.x;
+            const dy = tile.centerY - this.y;
+            const distSq = dx * dx + dy * dy;
+            if (distSq < closestDistSq) {
+                closestDistSq = distSq;
+                closestTile = tile;
+            }
+        }
+
+        if (closestTile) {
+            this.flankX = closestTile.centerX;
+            this.flankY = closestTile.centerY;
+            this.flanking = true;
+            this.updateVisualProperties(); // Apply speed bonus
+            return true;
+        }
+
+        return false;
+    }
+
+    // Deactivate flanking mode
+    deactivateFlank() {
+        this.flankX = null;
+        this.flankY = null;
+        this.flanking = false;
+        this.updateVisualProperties(); // Remove speed bonus
     }
 
     calculateAttributes(equipment) {
@@ -367,6 +430,13 @@ class Entity {
         this.isPanicking = false;
         this.panicTargetX = null;
         this.panicTargetY = null;
+
+        // Clear movement state so offensive AI can re-engage
+        this.targetX = null;
+        this.targetY = null;
+        this.isMoving = false;
+        this.isStationary = false;
+
         this.updateVisualProperties(); // Restore speed properly (accounts for mounted/leader)
         console.log(`Entity ${this.id} recovered from panic (distress: ${this.distress.toFixed(1)})`);
     }
@@ -1391,7 +1461,7 @@ if (canRetreat) {
     if (this.isBurstFiring) {
         this.burstDelayTimer -= deltaTime;
 
-        if (this.burstDelayTimer <= 0 && this.burstShotsRemaining > 0) {
+        if (this.burstDelayTimer <= 0 && this.burstShotsRemaining > 0 && !this.holdFire) {
             this.fire(allEntities);
             this.burstShotsRemaining--;
             this.burstDelayTimer = this.burstDelay; // Reset for next shot
@@ -1409,7 +1479,7 @@ if (canRetreat) {
             if (this.shotDelayTimer <= 0) {
                 this.shotDelayTimer = 0;
                 // Fire now
-                if (!this.isReloading && this.shootCooldown <= 0 && this.ranged_magazine_current > 0 && this.lockedTarget && !this.lockedTarget.isDying) {
+                if (!this.isReloading && this.shootCooldown <= 0 && this.ranged_magazine_current > 0 && this.lockedTarget && !this.lockedTarget.isDying && !this.holdFire) {
                     this.fire(allEntities);
                 }
             }

@@ -268,6 +268,9 @@ let showRetreatCones = false;
 // Bullet ray visualization
 let showBulletRays = false;
 
+// Heatmap visualization
+let showHeatmap = false;
+
 // Formation movement with arrows
 let formationMoveDistance = 0;
 let formationMoveAngle = 0;
@@ -452,9 +455,15 @@ function updateUnitInfo() {
             objectInfoStatus.style.color = 'white';
         }
 
-        // Hide stance HUD for cannons
+        // Show hold fire HUD for friendly cannons (cannon mode - only hold fire button)
         const stanceHUD = document.getElementById('stanceHUD');
-        stanceHUD.classList.add('hidden');
+        if (selectedCannon.faction === 'blue') {
+            stanceHUD.classList.remove('hidden');
+            stanceHUD.classList.add('cannon-mode');
+            updateHoldFireButton();
+        } else {
+            stanceHUD.classList.add('hidden');
+        }
 
         updateFormationBrowserVisibility();
         return;
@@ -568,6 +577,7 @@ function updateUnitInfo() {
 
         if (allFriendly && !allCrewMembers) {
             stanceHUD.classList.remove('hidden');
+            stanceHUD.classList.remove('cannon-mode'); // Show full HUD for units
             updateStanceButtons();
         } else {
             stanceHUD.classList.add('hidden');
@@ -599,6 +609,9 @@ function updateStanceButtons() {
     } else if (currentStance === 'offensive') {
         document.getElementById('stanceOffensiveBtn').classList.add('active');
     }
+
+    // Also update hold fire button state
+    updateHoldFireButton();
 }
 
 function updateGroupTabs() {
@@ -707,7 +720,10 @@ function updateGroupTabs() {
 async function init() {
     await equipmentLoader.loadAllEquipment();
     populateEquipmentDropdowns();
-    
+
+    // Initialize heatmap with map dimensions
+    heatmapManager.initialize(MAP_WIDTH, MAP_HEIGHT);
+
     gameLoop();
 }
 
@@ -1219,6 +1235,7 @@ function gameLoop() {
     entityManager.updateCorpses(deltaTime);
     fireManager.updateBurnMarks(deltaTime);
     leaderHaloManager.updateAll(deltaTime, entityManager.getAllEntities()); // Update leader halos with entity list
+    heatmapManager.updateAll(deltaTime, entityManager.entities, cannonManager.cannons, captureObjectiveManager.objectives); // Update heatmap territorial control
     t1 = performance.now();
     timings['Entities update'] = (t1 - t0).toFixed(2) + 'ms';
 
@@ -1340,6 +1357,11 @@ function gameLoop() {
     leaderHaloManager.drawAll(ctx, camera);
     t1 = performance.now();
     timings['Draw halos'] = (t1 - t0).toFixed(2) + 'ms';
+
+    // Draw heatmap (Y key toggle) - above entities, below UI
+    if (showHeatmap) {
+        heatmapManager.draw(ctx, camera);
+    }
 
     // Draw cannons
     cannonManager.drawAll(ctx, camera);
@@ -1597,6 +1619,11 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'x' || e.key === 'X') {
         showSoundwaves = !showSoundwaves;
         console.log('Soundwave visualization:', showSoundwaves ? 'ON' : 'OFF');
+    }
+
+    if (e.key === 'y' || e.key === 'Y') {
+        showHeatmap = !showHeatmap;
+        console.log('Heatmap visualization:', showHeatmap ? 'ON' : 'OFF');
     }
 
     if (e.ctrlKey && entityManager.selectedEntities.length > 1) {
@@ -3066,6 +3093,73 @@ function setSelectedStance(stance) {
     // Update UI
     updateStanceButtons();
     updateUnitInfo(); // CHECK
+}
+
+// ===== HOLD FIRE BUTTON HANDLER =====
+
+const holdFireBtn = document.getElementById('holdFireBtn');
+
+holdFireBtn.addEventListener('click', () => {
+    toggleHoldFire();
+});
+
+function toggleHoldFire() {
+    const selectedCannon = cannonManager.getSelectedCannon();
+
+    // Handle cannon hold fire
+    if (selectedCannon && selectedCannon.faction === 'blue') {
+        selectedCannon.holdFire = !selectedCannon.holdFire;
+        console.log(`Cannon ${selectedCannon.id} holdFire: ${selectedCannon.holdFire}`);
+        updateHoldFireButton();
+        return;
+    }
+
+    // Handle unit hold fire
+    const selected = entityManager.selectedEntities;
+    const friendlyUnits = selected.filter(e => e.faction === 'blue' && !e.isCrewMember);
+
+    if (friendlyUnits.length === 0) return;
+
+    // Toggle: if any have holdFire off, turn all on; otherwise turn all off
+    const anyNotHolding = friendlyUnits.some(e => !e.holdFire);
+
+    for (const entity of friendlyUnits) {
+        entity.holdFire = anyNotHolding;
+        console.log(`Entity ${entity.id} holdFire: ${entity.holdFire}`);
+    }
+
+    updateHoldFireButton();
+}
+
+function updateHoldFireButton() {
+    const holdFireBtn = document.getElementById('holdFireBtn');
+    const selectedCannon = cannonManager.getSelectedCannon();
+
+    // Handle cannon selection
+    if (selectedCannon) {
+        if (selectedCannon.holdFire) {
+            holdFireBtn.classList.add('active');
+        } else {
+            holdFireBtn.classList.remove('active');
+        }
+        return;
+    }
+
+    // Handle unit selection
+    const selected = entityManager.selectedEntities;
+
+    if (selected.length === 0) {
+        holdFireBtn.classList.remove('active');
+        return;
+    }
+
+    const anyHolding = selected.some(e => e.holdFire);
+
+    if (anyHolding) {
+        holdFireBtn.classList.add('active');
+    } else {
+        holdFireBtn.classList.remove('active');
+    }
 }
 
 init();
