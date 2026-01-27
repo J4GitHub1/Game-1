@@ -49,47 +49,9 @@ html, body {
     border-color: rgba(255, 255, 255, 0.5);
 }
 
-#menuButton {
-    top: 20px;
-    right: 20px;
-    transform-origin: top right;
-}
-
-#spawnButton {
-    top: 80px;
-    right: 20px;
-    transform-origin: top right;
-}
-
-#groupButton {
-    top: 140px;
-    right: 20px;
-    transform-origin: top right;
-}
-
-#formationButton {
-    top: 200px;
-    right: 20px;
-    transform-origin: top right;
-}
-
-#enemySpawnButton {
-    top: 260px;
-    right: 20px;
-    transform-origin: top right;
-}
-
-#objectiveSpawnButton {
-    top: 320px;
-    right: 20px;
-    transform-origin: top right;
-}
-
+/* Button positions managed by UIManager */
 #formationEditorWindow {
-    top: 100px;
-    left: 50%;
-    margin-left: -500px; /* Half of 900px width */
-    transform-origin: top center;
+    /* Position managed by UIManager */
 }
 
 #formationCanvas {
@@ -174,7 +136,7 @@ html, body {
     color: rgb(255, 100, 100);
 }
 
-/* Dialogue Windows */
+/* Dialogue Windows - Positions managed by UIManager */
 .dialogue-window {
     position: fixed;
     width: 300px;
@@ -185,29 +147,14 @@ html, body {
     z-index: 1001;
     font-family: Arial, sans-serif;
     will-change: transform;
+    backface-visibility: hidden;
 }
 
 .dialogue-window.hidden {
     display: none;
 }
 
-#menuWindow {
-    top: 100px;
-    right: 100px;
-    transform-origin: top right;
-}
-
-#spawnWindow {
-    top: 100px;
-    right: 450px;
-    transform-origin: top right;
-}
-
-#groupNameWindow {
-    top: 200px;
-    right: 450px;
-    transform-origin: top right;
-}
+/* Window positions managed by UIManager */
 
 .dialogue-header {
     background-color: rgba(50, 50, 50, 0.9);
@@ -327,11 +274,9 @@ html, body {
     border-color: rgba(100, 255, 100, 0.5);
 }
 
-/* Unit Info Window */
+/* Unit Info Window - Position managed by UIManager */
 .unit-info-window {
     position: fixed;
-    bottom: 20px;
-    left: 20px;
     width: 280px;
     background-color: rgba(30, 30, 30, 0.95);
     border: 2px solid rgba(255, 255, 255, 0.3);
@@ -339,8 +284,8 @@ html, body {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     z-index: 1001;
     font-family: Arial, sans-serif;
-    transform-origin: bottom left;
     will-change: transform;
+    backface-visibility: hidden;
 }
 
 .unit-info-window.hidden {
@@ -385,11 +330,9 @@ html, body {
     font-weight: bold;
 }
 
-/* Object Info Window (for cannons, etc.) */
+/* Object Info Window - Position managed by UIManager */
 .object-info-window {
     position: fixed;
-    bottom: 20px;
-    left: 20px;
     width: 220px;
     background-color: rgba(30, 30, 30, 0.95);
     border: 2px solid rgba(255, 255, 255, 0.3);
@@ -397,8 +340,8 @@ html, body {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     z-index: 1001;
     font-family: Arial, sans-serif;
-    transform-origin: bottom left;
     will-change: transform;
+    backface-visibility: hidden;
 }
 
 .object-info-window.hidden {
@@ -428,12 +371,9 @@ input[type="text"] {
     -webkit-user-select: text !important;
 }
 
-/* Formation Browser (Mid-Left) */
+/* Formation Browser - Position managed by UIManager */
 .formation-browser {
     position: fixed;
-    left: 20px;
-    top: 50%;
-    transform: translateY(-50%);
     width: 140px;
     max-height: 80vh;
     background-color: rgba(30, 30, 30, 0.95);
@@ -442,8 +382,8 @@ input[type="text"] {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     z-index: 1001;
     font-family: Arial, sans-serif;
-    transform-origin: left center;
     will-change: transform;
+    backface-visibility: hidden;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -509,18 +449,17 @@ input[type="text"] {
     word-wrap: break-word;
 }
 
-/* Stance HUD (Bottom Center) */
+/* Stance HUD - Position managed by UIManager */
 .stance-hud {
     position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
     background-color: rgba(30, 30, 30, 0.95);
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 10px;
     padding: 10px 15px;
     z-index: 1001;
     font-family: Arial, sans-serif;
+    will-change: transform;
+    backface-visibility: hidden;
 }
 
 .stance-hud.hidden {
@@ -587,18 +526,11 @@ input[type="text"] {
     pointer-events: none;
 }
 
-/* God Menu Button */
-#godMenuButton {
-    bottom: 20px;
-    right: 20px;
-    transform-origin: bottom right;
-}
+/* God Menu Button - Position managed by UIManager */
 
-/* God Menu Dropdown */
+/* God Menu Dropdown - Position managed by UIManager */
 .god-menu-dropdown {
     position: fixed;
-    bottom: 80px;
-    right: 20px;
     width: 200px;
     background-color: rgba(30, 30, 30, 0.95);
     border: 2px solid rgba(255, 215, 0, 0.5);
@@ -606,8 +538,8 @@ input[type="text"] {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     z-index: 1001;
     font-family: Arial, sans-serif;
-    transform-origin: bottom right;
     will-change: transform;
+    backface-visibility: hidden;
 }
 
 .god-menu-dropdown.hidden {

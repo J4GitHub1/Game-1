@@ -6,163 +6,32 @@ let currentFPS = 60;
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// Set canvas size to match viewport
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+// ===== CANVAS SETUP WITH DPR HANDLING =====
+let canvasDPR = 1;
 
-// ===== ZOOM DETECTION AND UI SCALING =====
-let currentZoom = 1;
+function setupCanvas() {
+    canvasDPR = window.devicePixelRatio || 1;
+    const cssWidth = window.innerWidth;
+    const cssHeight = window.innerHeight;
 
-function detectZoom() {
-    const oldZoom = currentZoom;
-    currentZoom = window.devicePixelRatio || 1;
-    
-    if (oldZoom !== currentZoom) {
-        scaleUIElements();
-    }
+    canvas.width = cssWidth * canvasDPR;
+    canvas.height = cssHeight * canvasDPR;
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(canvasDPR, canvasDPR);
 }
 
-function scaleUIElements() {
-    const scale = 1 / currentZoom;
-    
-    // Scale all UI buttons and adjust position to compensate
-    const menuBtn = document.getElementById('menuButton');
-    const spawnBtn = document.getElementById('spawnButton');
-    const groupBtn = document.getElementById('groupButton');
-    const formationBtn = document.getElementById('formationButton');
-    
-    if (menuBtn) {
-        menuBtn.style.transform = `scale(${scale})`;
-        menuBtn.style.right = `${20 * currentZoom}px`;
-        menuBtn.style.top = `${20 * currentZoom}px`;
-    }
-    
-    if (spawnBtn) {
-        spawnBtn.style.transform = `scale(${scale})`;
-        spawnBtn.style.right = `${20 * currentZoom}px`;
-        spawnBtn.style.top = `${80 * currentZoom}px`;
-    }
-    
-    if (groupBtn) {
-        groupBtn.style.transform = `scale(${scale})`;
-        groupBtn.style.right = `${20 * currentZoom}px`;
-        groupBtn.style.top = `${140 * currentZoom}px`;
-    }
-    
-    if (formationBtn) {
-        formationBtn.style.transform = `scale(${scale})`;
-        formationBtn.style.right = `${20 * currentZoom}px`;
-        formationBtn.style.top = `${200 * currentZoom}px`;
-    }
+setupCanvas();
 
-    const godMenuBtn = document.getElementById('godMenuButton');
-    if (godMenuBtn) {
-        godMenuBtn.style.transform = `scale(${scale})`;
-        godMenuBtn.style.right = `${20 * currentZoom}px`;
-        godMenuBtn.style.bottom = `${20 * currentZoom}px`;
-    }
-    
-    const godMenuDropdown = document.getElementById('godMenuDropdown');
-    if (godMenuDropdown) {
-        godMenuDropdown.style.transform = `scale(${scale})`;
-        godMenuDropdown.style.right = `${20 * currentZoom}px`;
-        godMenuDropdown.style.bottom = `${80 * currentZoom}px`;
-    }
-    
-    const enemySpawnBtn = document.getElementById('enemySpawnButton');
-    if (enemySpawnBtn) {
-        enemySpawnBtn.style.transform = `scale(${scale})`;
-        enemySpawnBtn.style.right = `${20 * currentZoom}px`;
-        enemySpawnBtn.style.top = `${260 * currentZoom}px`;
-    }
-    
-    // Scale group tabs container
-    const groupTabs = document.getElementById('groupTabsContainer');
-    if (groupTabs) {
-        groupTabs.style.transform = `scale(${scale})`;
-        groupTabs.style.transformOrigin = 'top left';
-        groupTabs.style.height = `${40 * currentZoom}px`;
-    }
-    
-    // Scale dialogue windows and adjust positions
-    const menuWindow = document.getElementById('menuWindow');
-    const spawnWindow = document.getElementById('spawnWindow');
-    const groupNameWindow = document.getElementById('groupNameWindow');
-    
-    if (menuWindow) {
-        menuWindow.style.transform = `scale(${scale})`;
-        if (!menuWindow.dataset.dragged) {
-            menuWindow.style.right = `${100 * currentZoom}px`;
-            menuWindow.style.top = `${100 * currentZoom}px`;
-        }
-    }
-    
-    if (spawnWindow) {
-        spawnWindow.style.transform = `scale(${scale})`;
-        if (!spawnWindow.dataset.dragged) {
-            spawnWindow.style.right = `${450 * currentZoom}px`;
-            spawnWindow.style.top = `${100 * currentZoom}px`;
-        }
-    }
-    
-    if (groupNameWindow) {
-        groupNameWindow.style.transform = `scale(${scale})`;
-        if (!groupNameWindow.dataset.dragged) {
-            groupNameWindow.style.right = `${450 * currentZoom}px`;
-            groupNameWindow.style.top = `${200 * currentZoom}px`;
-        }
-    }
-    
-    const enemyGroupWindow = document.getElementById('enemyGroupWindow');
-    if (enemyGroupWindow) {
-        enemyGroupWindow.style.transform = `scale(${scale})`;
-        if (!enemyGroupWindow.dataset.dragged) {
-            enemyGroupWindow.style.right = `${450 * currentZoom}px`;
-            enemyGroupWindow.style.top = `${300 * currentZoom}px`;
-        }
-    }
-    
-    // Scale unit info window
-    const unitInfo = document.getElementById('unitInfoWindow');
-    if (unitInfo) {
-        unitInfo.style.transform = `scale(${scale})`;
-        unitInfo.style.transformOrigin = 'bottom left';
-        unitInfo.style.left = `${20 * currentZoom}px`;
-        unitInfo.style.bottom = `${20 * currentZoom}px`;
-    }
+// Initialize UI Manager
+initUIManager();
 
-    // Add formation editor window scaling
-    const formationEditorWindow = document.getElementById('formationEditorWindow');
-    if (formationEditorWindow) {
-        formationEditorWindow.style.transform = `scale(${scale})`;
-        if (!formationEditorWindow.dataset.dragged) {
-            formationEditorWindow.style.top = `${100 * currentZoom}px`;
-            formationEditorWindow.style.left = '50%';
-            formationEditorWindow.style.marginLeft = `${-500 * currentZoom}px`;
-        }
-    }
-
-    const formationBrowser = document.getElementById('formationBrowser');
-    if (formationBrowser) {
-        formationBrowser.style.transform = `scale(${scale}) translateY(-50%)`;
-        formationBrowser.style.left = `${20 * currentZoom}px`;
-    }
-}
-
-// Detect zoom on load and resize
-window.addEventListener('load', () => {
-    detectZoom();
-    scaleUIElements();
-});
-
+// Handle resize
 window.addEventListener('resize', () => {
-    detectZoom();
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    setupCanvas();
 });
-
-// Poll for zoom changes (catches Ctrl+/-)
-setInterval(detectZoom, 500);
 
 // Map dimensions
 const MAP_WIDTH = 5000;
@@ -1758,6 +1627,7 @@ function executeFormationMovement() {
     }
     
     entityManager.currentFlowField = flowField;
+    debugFlowField = flowField; // Set for 'f' key visualization
     // END NEW BLOCK
     
     for (const entity of entityManager.selectedEntities) {
@@ -1846,6 +1716,7 @@ function executeCannonMovement() {
     }
 
     selectedCannon.setFlowField(flowField);
+    debugFlowField = flowField; // Set for 'f' key visualization
     selectedCannon.moveTo(targetX, targetY);
 
     console.log(`Cannon ${selectedCannon.id} moved ${cannonMoveDistance}px at angle ${(cannonMoveAngle * 180 / Math.PI).toFixed(0)}°`);
@@ -3010,47 +2881,6 @@ document.querySelectorAll('.close-btn-red').forEach((btn) => {
         }
     });
 });
-
-// ===== DRAGGABLE DIALOGUES =====
-
-function makeDraggable(dialogueWindow) {
-    let isDragging = false;
-    let dragOffsetX = 0;
-    let dragOffsetY = 0;
-    
-    const header = dialogueWindow.querySelector('.dialogue-header');
-    
-    header.addEventListener('mousedown', (e) => {
-        if (e.target.classList.contains('close-btn-red')) return;
-        
-        isDragging = true;
-        dragOffsetX = e.clientX - dialogueWindow.offsetLeft;
-        dragOffsetY = e.clientY - dialogueWindow.offsetTop;
-        dialogueWindow.style.cursor = 'grabbing';
-        dialogueWindow.dataset.dragged = 'true';
-    });
-    
-    document.addEventListener('mousemove', (e) => {
-        if (isDragging && dialogueWindow.contains(header)) {
-            dialogueWindow.style.left = (e.clientX - dragOffsetX) + 'px';
-            dialogueWindow.style.top = (e.clientY - dragOffsetY) + 'px';
-            dialogueWindow.style.right = 'auto';
-        }
-    });
-    
-    document.addEventListener('mouseup', () => {
-        if (isDragging) {
-            isDragging = false;
-            dialogueWindow.style.cursor = 'default';
-        }
-    });
-}
-
-makeDraggable(menuWindow);
-makeDraggable(spawnWindow);
-makeDraggable(groupNameWindow);
-makeDraggable(formationEditorWindow);
-makeDraggable(enemyGroupWindow);
 
 // ===== STANCE BUTTON HANDLERS =====
 
