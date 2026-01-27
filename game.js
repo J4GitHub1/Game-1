@@ -1105,6 +1105,7 @@ function gameLoop() {
     fireManager.updateBurnMarks(deltaTime);
     leaderHaloManager.updateAll(deltaTime, entityManager.getAllEntities()); // Update leader halos with entity list
     heatmapManager.updateAll(deltaTime, entityManager.entities, cannonManager.cannons, captureObjectiveManager.objectives); // Update heatmap territorial control
+    aiGroupManager.updateAll(deltaTime, entityManager, cannonManager, heatmapManager); // Update AI group manager stats
     t1 = performance.now();
     timings['Entities update'] = (t1 - t0).toFixed(2) + 'ms';
 
@@ -1230,6 +1231,8 @@ function gameLoop() {
     // Draw heatmap (Y key toggle) - above entities, below UI
     if (showHeatmap) {
         heatmapManager.draw(ctx, camera);
+        aiGroupManager.draw(ctx, camera);
+        captureObjectiveManager.drawRepulsionWaves(ctx, camera);
     }
 
     // Draw cannons
@@ -2710,6 +2713,7 @@ function spawnEnemyGroup(centerX, centerY, equipment, count, groupName) {
     if (spawnedEntities.length >= 2) {
         const group = new Group(groupName, spawnedEntities);
         entityManager.groups.push(group);
+        aiGroupManager.registerGroup(group);
         updateGroupTabs();
         console.log(`Enemy group "${groupName}" created with ${spawnedEntities.length} units. Group ID: ${group.id}`);
     }

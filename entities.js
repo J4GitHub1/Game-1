@@ -77,10 +77,40 @@ class Entity {
         this.retreatStartX = null;            // Position when retreat started (for distance tracking)
         this.retreatStartY = null;
 
+        // Health-based retreat system (triggered when health falls below 30%)
+        this.isHealthRetreat = false;         // Whether current retreat is health-based
+        this.healthRetreatCooldown = 0;       // Cooldown timer (30 seconds)
+        this.healthRetreatThreshold = null;   // Health value when last triggered (only retrigger if lower)
+        this.healthRetreatDuration = 2.0;     // Fixed 2 seconds retreat duration
+
         // Flanking system (moving toward flank option tiles)
         this.flanking = false;               // Whether unit is flanking
         this.flankX = null;                  // Target flank position X
         this.flankY = null;                  // Target flank position Y
+
+        // Rubber band system (red units stay near group average position)
+        this.rubberBandActive = false;       // Whether rubber band movement is active
+        this.rubberBandCheckTimer = 0;       // Timer for 2-second checks
+        this.rubberBandCheckInterval = 5.0;  // Check every 2 seconds
+        this.rubberBandDistance = 0;         // Current distance from group average
+        this.rubberBandThreshold = 100;      // Activation threshold in pixels
+        this.rubberBandPending = false;      // Whether waiting for reaction delay
+        this.rubberBandDelayTimer = 0;       // Reaction delay timer
+        this.rubberBandDelayDuration = 0;    // Random 0-1s delay
+        this.rubberBandPendingTarget = null; // Pending target position {x, y}
+
+        // Capture movement system (triggered by repulsion waves)
+        this.captureMovementActive = false;  // Whether capture-triggered movement is active
+        this.captureObjectiveId = null;      // ID of the capture objective that triggered movement
+        this.captureMovementTimer = 0;       // Timer for 10-second timeout
+        this.captureMovementTimeout = 10.0;   // Stop after 10 seconds if not renewed
+        this.captureMovementPending = false; // Whether waiting for reaction delay
+        this.captureDelayTimer = 0;          // Reaction delay timer
+        this.captureDelayDuration = 0;       // Random 0-1s delay
+        this.capturePendingTarget = null;    // Pending target {x, y, objectiveId}
+        this.captureStopPending = false;     // Whether waiting for stop delay
+        this.captureStopDelayTimer = 0;      // Stop delay timer
+        this.captureStopDelayDuration = 0;   // Random 0-0.5s stop delay
 
         // Combat state
         this.isShooting = false;
@@ -212,6 +242,12 @@ class Entity {
                 speed *= 1.3; // +30% from flanking
             }
 
+            // Apply rubber band speed buff (scales with distance from group)
+            if (this.rubberBandActive && this.rubberBandDistance > 0) {
+                const rubberBandBonus = (this.rubberBandDistance / this.rubberBandThreshold) * 0.2;
+                speed *= (1 + rubberBandBonus);
+            }
+
             // Apply mounted speed debuffs (stacking)
             if (this.mounted) {
                 const hitDebuffPercent = this.mountedHitDebuffStacks * 0.10; // 10% per stack
@@ -283,6 +319,269 @@ class Entity {
         this.updateVisualProperties(); // Remove speed bonus
     }
 
+    // Update rubber band system (red units stay near group average position)
+    updateRubberBand(deltaTime, allEntities) {
+        // Only for red faction units
+        if (this.faction !== 'red') return;
+
+        // Cancel if any of these conditions
+        if (this.isDying || this.isPanicking || this.isRetreating || this.isHealthRetreat) {
+            this.cancelRubberBand();
+            return;
+        }
+
+        // Must be in a group
+        if (this.groupId === null) {
+            this.cancelRubberBand();
+            return;
+        }
+
+        // Process pending rubber band (reaction delay)
+        if (this.rubberBandPending) {
+            this.rubberBandDelayTimer += deltaTime;
+
+            if (this.rubberBandDelayTimer >= this.rubberBandDelayDuration) {
+                // Delay complete - activate rubber band movement
+                this.rubberBandPending = false;
+                this.rubberBandDelayTimer = 0;
+
+                if (this.rubberBandPendingTarget) {
+                    const target = this.rubberBandPendingTarget;
+                    this.rubberBandActive = true;
+                    this.rubberBandDistance = target.distance;
+
+                    // Move towards group average position
+                    this.targetX = target.x;
+                    this.targetY = target.y;
+                    this.finalTargetX = target.x;
+                    this.finalTargetY = target.y;
+                    this.isMoving = true;
+
+                    // Turn towards target
+                    const dx = target.x - this.x;
+                    const dy = target.y - this.y;
+                    this.targetHeading = Math.atan2(dy, dx);
+                    this.isRotating = true;
+
+                    // Update speed with rubber band bonus
+                    this.updateVisualProperties();
+
+                    this.rubberBandPendingTarget = null;
+                }
+            }
+            return; // Don't do regular check while pending
+        }
+
+        // Update check timer
+        this.rubberBandCheckTimer += deltaTime;
+
+        // Only check every 5 seconds
+        if (this.rubberBandCheckTimer < this.rubberBandCheckInterval) {
+            // If already active, continue moving but don't recheck yet
+            return;
+        }
+
+        this.rubberBandCheckTimer = 0;
+
+        // Get group stats from AI group manager
+        if (typeof aiGroupManager === 'undefined') {
+            this.cancelRubberBand();
+            return;
+        }
+
+        const groupStats = aiGroupManager.getGroupStats(this.groupId);
+        if (!groupStats) {
+            this.cancelRubberBand();
+            return;
+        }
+
+        // Calculate distance from group average position
+        const dx = groupStats.avgX - this.x;
+        const dy = groupStats.avgY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Check if already have other movement orders (not rubber band)
+        const hasOtherOrders = this.targetX !== null && !this.rubberBandActive;
+
+        if (hasOtherOrders) {
+            this.cancelRubberBand();
+            return;
+        }
+
+        // Check distance threshold
+        if (distance > this.rubberBandThreshold) {
+            // Start pending with random 0-1s delay
+            this.rubberBandPending = true;
+            this.rubberBandDelayTimer = 0;
+            this.rubberBandDelayDuration = Math.random(); // 0-1 second
+            this.rubberBandPendingTarget = {
+                x: groupStats.avgX,
+                y: groupStats.avgY,
+                distance: distance
+            };
+        } else {
+            // Within threshold - deactivate rubber band and disperse if was active
+            const wasActive = this.rubberBandActive;
+            this.cancelRubberBand();
+            if (wasActive) {
+                this.disperseFromFriendlies(allEntities);
+            }
+        }
+    }
+
+    // Cancel rubber band movement
+    cancelRubberBand() {
+        // Clear pending state
+        this.rubberBandPending = false;
+        this.rubberBandDelayTimer = 0;
+        this.rubberBandPendingTarget = null;
+
+        if (!this.rubberBandActive) return;
+
+        this.rubberBandActive = false;
+        this.rubberBandDistance = 0;
+
+        // Clear movement if it was rubber band movement
+        if (this.isMoving && this.targetX !== null) {
+            this.targetX = null;
+            this.targetY = null;
+            this.finalTargetX = null;
+            this.finalTargetY = null;
+            this.isMoving = false;
+        }
+
+        // Remove speed bonus
+        this.updateVisualProperties();
+    }
+
+    // Queue capture movement with random delay (called by CaptureObjective.triggerUnitCapture)
+    // target: {x, y, objectiveId, objectiveX, objectiveY}
+    queueCaptureMovement(target) {
+        // If already doing capture movement for same objective, just renew the timer
+        if (this.captureMovementActive && this.captureObjectiveId === target.objectiveId) {
+            this.captureMovementTimer = 0; // Renewal
+            return;
+        }
+
+        // Start pending with random 0-1s delay
+        this.captureMovementPending = true;
+        this.captureDelayTimer = 0;
+        this.captureDelayDuration = Math.random(); // 0-1 second
+        this.capturePendingTarget = target;
+    }
+
+    // Start capture movement immediately (called after delay completes)
+    startCaptureMovement(objectiveId) {
+        this.captureMovementActive = true;
+        this.captureObjectiveId = objectiveId;
+        this.captureMovementTimer = 0; // Reset timer on start/renewal
+    }
+
+    // Update capture movement timer (6 second timeout) and process pending delay
+    updateCaptureMovement(deltaTime, allEntities) {
+        // Process pending capture movement (reaction delay)
+        if (this.captureMovementPending) {
+            this.captureDelayTimer += deltaTime;
+
+            if (this.captureDelayTimer >= this.captureDelayDuration) {
+                // Delay complete - execute capture movement
+                this.captureMovementPending = false;
+                this.captureDelayTimer = 0;
+
+                if (this.capturePendingTarget) {
+                    const target = this.capturePendingTarget;
+                    this.capturePendingTarget = null;
+
+                    // Turn towards objective
+                    const dx = target.objectiveX - this.x;
+                    const dy = target.objectiveY - this.y;
+                    this.targetHeading = Math.atan2(dy, dx);
+                    this.isRotating = true;
+
+                    // Move to target position inside capture circle
+                    this.moveTo(target.x, target.y);
+                    this.isMoving = true;
+
+                    // Mark as capture movement
+                    this.startCaptureMovement(target.objectiveId);
+                }
+            }
+            return;
+        }
+
+        // Process pending stop (stop delay)
+        if (this.captureStopPending) {
+            this.captureStopDelayTimer += deltaTime;
+
+            if (this.captureStopDelayTimer >= this.captureStopDelayDuration) {
+                // Delay complete - execute stop
+                this.captureStopPending = false;
+                this.captureStopDelayTimer = 0;
+                this.stopCaptureMovement(allEntities);
+            }
+            return;
+        }
+
+        if (!this.captureMovementActive) return;
+
+        this.captureMovementTimer += deltaTime;
+
+        // Stop after 6 seconds if not renewed
+        if (this.captureMovementTimer >= this.captureMovementTimeout) {
+            this.stopCaptureMovement(allEntities);
+        }
+    }
+
+    // Queue stop capture movement with random delay (called when hit by wave inside capture area)
+    queueStopCaptureMovement() {
+        if (!this.captureMovementActive) return;
+        if (this.captureStopPending) return; // Already pending
+
+        this.captureStopPending = true;
+        this.captureStopDelayTimer = 0;
+        this.captureStopDelayDuration = Math.random() * 0.5; // 0-0.5 second
+    }
+
+    // Stop capture movement and disperse (called when hit by wave inside capture area or timeout)
+    stopCaptureMovement(allEntities) {
+        // Clear pending states
+        this.captureMovementPending = false;
+        this.captureDelayTimer = 0;
+        this.capturePendingTarget = null;
+        this.captureStopPending = false;
+        this.captureStopDelayTimer = 0;
+
+        if (!this.captureMovementActive) return;
+
+        this.captureMovementActive = false;
+        this.captureObjectiveId = null;
+        this.captureMovementTimer = 0;
+
+        // Clear movement
+        this.targetX = null;
+        this.targetY = null;
+        this.finalTargetX = null;
+        this.finalTargetY = null;
+        this.isMoving = false;
+
+        // Disperse from friendlies
+        this.disperseFromFriendlies(allEntities);
+    }
+
+    // Cancel capture movement (called when other orders given, no disperse)
+    cancelCaptureMovement() {
+        // Clear pending states
+        this.captureMovementPending = false;
+        this.captureDelayTimer = 0;
+        this.capturePendingTarget = null;
+        this.captureStopPending = false;
+        this.captureStopDelayTimer = 0;
+
+        this.captureMovementActive = false;
+        this.captureObjectiveId = null;
+        this.captureMovementTimer = 0;
+    }
+
     calculateAttributes(equipment) {
         const armor = equipment.armor || { weight: 0, protection: 0 };
         const melee = equipment.melee || { weight: 0, length: 0 };
@@ -312,8 +611,20 @@ class Entity {
         this.ranged_cooldown = 1;
         this.melee_cooldown = 1 * melee.weight;
 
+        // Calculate damage per second (DPS) - independent of distress modifiers
+        // Cycle: fire all shots with cooldown between each, then reload, then 1s post-reload cooldown
+        // Total cycle time = (magazine - 1) * shot_cooldown + reload_time + post_reload_cooldown
+        if (this.ranged_magazine_max > 0) {
+            const postReloadCooldown = 1; // 1 second cooldown after reload completes
+            const cycleTime = (this.ranged_magazine_max - 1) * this.ranged_cooldown + this.ranged_reloading_time + postReloadCooldown;
+            this.damagePerSecond = (this.ranged_magazine_max * this.ranged_base_damage) / cycleTime;
+        } else {
+            this.damagePerSecond = 0; // No ranged weapon
+        }
+
         // Health calculation with armor protection
         this.health = (armor.protection / 2 + 1) * 100;
+        this.maxHealth = this.health;  // Store max health for retreat threshold calculation
         this.movement_speed = 8 / (0.5*this.entity_weight);
         
         // Apply random speed variation (-5% to +5%)
@@ -406,6 +717,18 @@ class Entity {
             this.retreatTimer = 0;
             this.retreatStartX = null;
             this.retreatStartY = null;
+        }
+
+        // Clear rubber band state when entering panic
+        if (this.rubberBandActive) {
+            this.rubberBandActive = false;
+            this.rubberBandDistance = 0;
+        }
+
+        // Clear capture movement state when entering panic
+        if (this.captureMovementActive) {
+            this.captureMovementActive = false;
+            this.captureObjectiveId = null;
         }
 
         // Clear burst state when entering panic
@@ -530,28 +853,36 @@ class Entity {
             this.velocity.x = retreatVelocityX;
             this.velocity.y = retreatVelocityY;
 
-            // Check if interval elapsed
-            if (this.retreatTimer >= this.retreatInterval) {
-                this.retreatTimer = 0;
+            // Health-based retreat: fixed 1 second duration, no enemy checking
+            if (this.isHealthRetreat) {
+                if (this.retreatTimer >= this.healthRetreatDuration) {
+                    console.log(`Unit ${this.id}: Health retreat completed (1 second elapsed)`);
+                    this.stopRetreat(allEntities);
+                }
+            } else {
+                // Enemy-based retreat: check every interval if enemies still nearby
+                if (this.retreatTimer >= this.retreatInterval) {
+                    this.retreatTimer = 0;
 
-                // Recheck enemy count in retreat cone
-                const enemiesInFOV = this.scanForEnemies(allEntities);
-                let enemiesInRetreatCone = 0;
+                    // Recheck enemy count in retreat cone
+                    const enemiesInFOV = this.scanForEnemies(allEntities);
+                    let enemiesInRetreatCone = 0;
 
-                if (enemiesInFOV && enemiesInFOV.length > 0) {
-                    for (const enemyData of enemiesInFOV) {
-                        if (this.isInRetreatCone(enemyData.entity.x, enemyData.entity.y)) {
-                            enemiesInRetreatCone++;
+                    if (enemiesInFOV && enemiesInFOV.length > 0) {
+                        for (const enemyData of enemiesInFOV) {
+                            if (this.isInRetreatCone(enemyData.entity.x, enemyData.entity.y)) {
+                                enemiesInRetreatCone++;
+                            }
                         }
                     }
-                }
 
-                // Stop if fewer than 3 enemies
-                if (enemiesInRetreatCone < 3) {
-                    console.log(`Unit ${this.id}: Retreat stopped - only ${enemiesInRetreatCone} enemies in cone`);
-                    this.stopRetreat(allEntities);
-                } else {
-                    console.log(`Unit ${this.id}: Retreat continuing - ${enemiesInRetreatCone} enemies in cone`);
+                    // Stop if fewer than 3 enemies
+                    if (enemiesInRetreatCone < 3) {
+                        console.log(`Unit ${this.id}: Retreat stopped - only ${enemiesInRetreatCone} enemies in cone`);
+                        this.stopRetreat(allEntities);
+                    } else {
+                        console.log(`Unit ${this.id}: Retreat continuing - ${enemiesInRetreatCone} enemies in cone`);
+                    }
                 }
             }
         }
@@ -856,7 +1187,13 @@ const combinedForce = {
             this.updateVisualProperties(); // Recalculate speed without buff
         }
     }
-    
+
+    // Health retreat cooldown decay
+    if (this.healthRetreatCooldown > 0) {
+        this.healthRetreatCooldown -= deltaTime;
+        this.healthRetreatCooldown = Math.max(0, this.healthRetreatCooldown);
+    }
+
     // FIRE DAMAGE & DISTRESS - Check if unit is touching or near any fire
     if (!this.isDying && typeof fireManager !== 'undefined') {
         const fires = fireManager.getAllFires();
@@ -1428,6 +1765,36 @@ if (canRetreat) {
         }
     }
 }
+
+// === HEALTH-BASED RETREAT DETECTION ===
+// Trigger retreat when health falls below 30% of max health
+const canHealthRetreat = (
+    !this.isDying &&
+    !this.isPanicking &&
+    !this.isRetreating &&
+    this.healthRetreatCooldown <= 0
+);
+
+if (canHealthRetreat) {
+    const healthPercent = this.health / this.maxHealth;
+    const threshold = 0.3; // 30% of max health
+
+    if (healthPercent < threshold) {
+        // Check if this is first trigger or health is lower than last threshold
+        if (this.healthRetreatThreshold === null || this.health < this.healthRetreatThreshold) {
+            console.log(`Unit ${this.id}: Health at ${(healthPercent * 100).toFixed(1)}% (${this.health.toFixed(1)}/${this.maxHealth}) - HEALTH RETREAT`);
+            this.healthRetreatThreshold = this.health; // Store current health as new threshold
+            this.healthRetreatCooldown = 30; // Start 30 second cooldown
+            this.startHealthRetreat(allEntities);
+        }
+    }
+}
+
+// === RUBBER BAND SYSTEM (Red units stay near group) ===
+this.updateRubberBand(deltaTime, allEntities);
+
+// === CAPTURE MOVEMENT TIMEOUT (6 seconds if not renewed) ===
+this.updateCaptureMovement(deltaTime, allEntities);
 
     // COMBAT: CHECK IF ENEMY IN WEAPON RANGE AND FIRE
     if (!this.isDying && !this.isPanicking && this.lockedTarget && !this.lockedTarget.isDying) {
@@ -2117,6 +2484,18 @@ disperseFromFriendlies(allEntities) {
 
 // Start retreat behavior
 startRetreat(allEntities) {
+    // Cancel rubber band
+    if (this.rubberBandActive) {
+        this.rubberBandActive = false;
+        this.rubberBandDistance = 0;
+    }
+
+    // Cancel capture movement
+    if (this.captureMovementActive) {
+        this.captureMovementActive = false;
+        this.captureObjectiveId = null;
+    }
+
     // Override AI movement
     if (this.aiControlled) {
         this.aiControlled = false;
@@ -2147,6 +2526,51 @@ startRetreat(allEntities) {
     console.log(`Unit ${this.id}: Retreat started at (${Math.floor(this.x)}, ${Math.floor(this.y)})${this.mounted ? ' (mounted - turned around)' : ''}`);
 }
 
+// Start health-based retreat behavior (1 second fixed duration)
+startHealthRetreat(allEntities) {
+    // Cancel rubber band
+    if (this.rubberBandActive) {
+        this.rubberBandActive = false;
+        this.rubberBandDistance = 0;
+    }
+
+    // Cancel capture movement
+    if (this.captureMovementActive) {
+        this.captureMovementActive = false;
+        this.captureObjectiveId = null;
+    }
+
+    // Override AI movement
+    if (this.aiControlled) {
+        this.aiControlled = false;
+        this.aiTargetX = null;
+        this.aiTargetY = null;
+        this.aiTargetEnemies = [];
+    }
+
+    // Enter retreat state with health flag
+    this.isRetreating = true;
+    this.isHealthRetreat = true;
+    this.retreatTimer = 0;
+    this.retreatStartX = this.x;
+    this.retreatStartY = this.y;
+
+    // Clear any existing movement targets
+    this.targetX = null;
+    this.targetY = null;
+    this.isMoving = false;
+
+    // Mounted units turn around (horses can't walk backwards)
+    if (this.mounted) {
+        this.heading += Math.PI; // Turn 180°
+        // Normalize heading to 0-2π range
+        while (this.heading >= 2 * Math.PI) this.heading -= 2 * Math.PI;
+        while (this.heading < 0) this.heading += 2 * Math.PI;
+    }
+
+    console.log(`Unit ${this.id}: Health retreat started at (${Math.floor(this.x)}, ${Math.floor(this.y)})${this.mounted ? ' (mounted - turned around)' : ''}`);
+}
+
 // Stop retreat behavior
 stopRetreat(allEntities) {
     if (!this.isRetreating) return;
@@ -2160,6 +2584,7 @@ stopRetreat(allEntities) {
     }
 
     this.isRetreating = false;
+    this.isHealthRetreat = false;
     this.retreatTimer = 0;
     this.retreatStartX = null;
     this.retreatStartY = null;
@@ -2752,6 +3177,19 @@ getViewAngle() {
 }
 
 moveTo(x, y) {
+    // Cancel rubber band on external movement order
+    if (this.rubberBandActive) {
+        this.rubberBandActive = false;
+        this.rubberBandDistance = 0;
+        this.updateVisualProperties();
+    }
+
+    // Cancel capture movement on external movement order
+    if (this.captureMovementActive) {
+        this.captureMovementActive = false;
+        this.captureObjectiveId = null;
+    }
+
     this.targetX = x;
     this.targetY = y;
     this.finalTargetX = x;
@@ -2777,9 +3215,13 @@ moveTo(x, y) {
         this.aiTargetEnemies = [];
     }
 
-    // Disable retreat on manual movement order
+    // Disable retreat on manual movement order (no disperse since we're getting new orders)
     if (this.isRetreating) {
-        this.stopRetreat(allEntities); // Includes dispersion
+        this.isRetreating = false;
+        this.isHealthRetreat = false;
+        this.retreatTimer = 0;
+        this.retreatStartX = null;
+        this.retreatStartY = null;
     }
 
     const dx = x - this.x;
@@ -3676,6 +4118,7 @@ pointToLineSegmentDistance(point, lineStart, lineEnd) {
     }
 
     // Remove group from list
+    aiGroupManager.unregisterGroup(groupId);
     this.groups = this.groups.filter(g => g.id !== groupId);
 }
 

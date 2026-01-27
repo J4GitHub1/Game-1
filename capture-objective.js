@@ -49,6 +49,16 @@ class CaptureObjective {
         // Linked object (for "object" type objectives bound to cannons, etc.)
         this.linkedObject = options.linkedObject ?? null;
 
+        // Repulsion wave system (attracts red units to capture)
+        this.repulsionCheckTimer = 0;
+        this.repulsionCheckInterval = 5.0; // Check every 5 seconds
+        this.repulsionWaveActive = false;
+        this.repulsionWaveRadius = 0;
+        this.repulsionWaveTimer = 0;
+        this.repulsionMaxRadius = 450;
+        this.repulsionExpansionTime = 2.0; // 2 seconds to full expansion
+        this.repulsionHitUnits = new Set(); // Track units already hit by current wave
+
         console.log(`CaptureObjective ${this.id} created: "${this.objective_name}" at (${Math.floor(x)}, ${Math.floor(y)})`);
     }
 
@@ -178,7 +188,141 @@ class CaptureObjective {
             }
         }
 
+        // Repulsion wave system - blue/white objectives on red tiles attract red units
+        this.updateRepulsionWave(deltaTime, entities);
+
         return { stillActive: true };  // Objectives persist
+    }
+
+    // Check if objective is on a red-controlled heatmap tile
+    isOnRedTile() {
+        if (typeof heatmapManager === 'undefined') return false;
+
+        const tileWidth = heatmapManager.tileWidth;
+        const tileHeight = heatmapManager.tileHeight;
+        const gridX = Math.floor(this.x / tileWidth);
+        const gridY = Math.floor(this.y / tileHeight);
+
+        const tile = heatmapManager.getTile(gridX, gridY);
+        return tile && tile.faction === 'red';
+    }
+
+    // Update repulsion wave system
+    updateRepulsionWave(deltaTime, entities) {
+        // Only blue or white (none) objectives emit repulsion waves
+        if (this.faction === 'red') {
+            this.repulsionWaveActive = false;
+            return;
+        }
+
+        // Update check timer
+        this.repulsionCheckTimer += deltaTime;
+
+        // Check every 5 seconds if we should start a new wave
+        if (!this.repulsionWaveActive && this.repulsionCheckTimer >= this.repulsionCheckInterval) {
+            this.repulsionCheckTimer = 0;
+
+            // Check if on red tile
+            if (this.isOnRedTile()) {
+                // Start repulsion wave
+                this.repulsionWaveActive = true;
+                this.repulsionWaveRadius = 0;
+                this.repulsionWaveTimer = 0;
+                this.repulsionHitUnits.clear();
+            }
+        }
+
+        // Update active wave
+        if (this.repulsionWaveActive) {
+            this.repulsionWaveTimer += deltaTime;
+            const previousRadius = this.repulsionWaveRadius;
+            this.repulsionWaveRadius = (this.repulsionWaveTimer / this.repulsionExpansionTime) * this.repulsionMaxRadius;
+
+            // Check for red units hit by the expanding wave
+            for (const entity of entities) {
+                if (entity.faction !== 'red') continue;
+                if (entity.isDying) continue;
+                if (this.repulsionHitUnits.has(entity.id)) continue; // Already processed
+
+                const dx = entity.x - this.x;
+                const dy = entity.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // Check if entity was just hit by the expanding wave edge
+                if (distance <= this.repulsionWaveRadius && distance > previousRadius) {
+                    this.repulsionHitUnits.add(entity.id);
+
+                    // Check if unit is doing capture movement AND inside this objective's capture area
+                    if (entity.captureMovementActive && distance <= this.capture_radius) {
+                        // Queue stop capture movement with random delay
+                        entity.queueStopCaptureMovement();
+                    } else if (entity.captureMovementActive) {
+                        // Already doing capture movement but not inside capture area - reset timeout timer
+                        entity.captureMovementTimer = 0;
+                    } else {
+                        // 70% chance to start capture movement (only if not already doing capture movement)
+                        if (Math.random() < 0.7) {
+                            this.triggerUnitCapture(entity);
+                        }
+                    }
+                }
+            }
+
+            // End wave when fully expanded
+            if (this.repulsionWaveTimer >= this.repulsionExpansionTime) {
+                this.repulsionWaveActive = false;
+                this.repulsionWaveRadius = 0;
+                this.repulsionWaveTimer = 0;
+            }
+        }
+    }
+
+    // Check line of sight from unit to objective (blocked by walls AND water)
+    hasUnobstructedLine(fromX, fromY) {
+        const dx = this.x - fromX;
+        const dy = this.y - fromY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < 1) return true;
+
+        const samples = Math.ceil(distance / 10); // Check every 10px
+
+        for (let i = 1; i <= samples; i++) {
+            const t = i / samples;
+            const checkX = fromX + dx * t;
+            const checkY = fromY + dy * t;
+
+            const terrainType = TerrainManager.getTerrainType(checkX, checkY);
+
+            if (terrainType === 'wall' || terrainType === 'water') {
+                return false; // Blocked
+            }
+        }
+
+        return true;
+    }
+
+    // Trigger a red unit to move towards this objective (with random delay)
+    triggerUnitCapture(entity) {
+        // Check for unobstructed line to objective
+        if (!this.hasUnobstructedLine(entity.x, entity.y)) {
+            return; // Blocked by wall or water
+        }
+
+        // Calculate random position inside the capture circle
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.random() * this.capture_radius;
+        const targetX = this.x + Math.cos(angle) * radius;
+        const targetY = this.y + Math.sin(angle) * radius;
+
+        // Queue capture movement with random 0-1s delay
+        entity.queueCaptureMovement({
+            x: targetX,
+            y: targetY,
+            objectiveId: this.id,
+            objectiveX: this.x,
+            objectiveY: this.y
+        });
     }
 
     completeCaptureForFaction(newFaction, entities) {
@@ -359,6 +503,31 @@ class CaptureObjective {
             ctx.stroke();
         }
     }
+
+    // Draw repulsion wave (only when heatmap is visible)
+    drawRepulsionWave(ctx, camera) {
+        if (!this.repulsionWaveActive) return;
+
+        const screenX = this.x - camera.x;
+        const screenY = this.y - camera.y;
+
+        // Calculate opacity (fade out as it expands)
+        const progress = this.repulsionWaveTimer / this.repulsionExpansionTime;
+        const opacity = 0.6 * (1.0 - progress * 0.5); // Start at 0.6, fade to 0.3
+
+        // Draw magenta expanding circle
+        ctx.strokeStyle = `rgba(255, 0, 255, ${opacity})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, this.repulsionWaveRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Also draw a filled version with low opacity
+        ctx.fillStyle = `rgba(255, 0, 255, ${opacity * 0.15})`;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, this.repulsionWaveRadius, 0, Math.PI * 2);
+        ctx.fill();
+    }
 }
 
 class CaptureObjectiveManager {
@@ -381,6 +550,13 @@ class CaptureObjectiveManager {
     drawAll(ctx, camera) {
         for (const objective of this.objectives) {
             objective.draw(ctx, camera);
+        }
+    }
+
+    // Draw repulsion waves (only when heatmap is visible)
+    drawRepulsionWaves(ctx, camera) {
+        for (const objective of this.objectives) {
+            objective.drawRepulsionWave(ctx, camera);
         }
     }
 
