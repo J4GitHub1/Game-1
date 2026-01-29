@@ -90,8 +90,8 @@ class Entity {
 
         // Rubber band system (red units stay near group average position)
         this.rubberBandActive = false;       // Whether rubber band movement is active
-        this.rubberBandCheckTimer = 0;       // Timer for 2-second checks
-        this.rubberBandCheckInterval = 5.0;  // Check every 2 seconds
+        this.rubberBandCheckTimer = Math.random() * 8.0;  // Staggered start (random 0-8s)
+        this.rubberBandCheckInterval = 8.0;  // Check every 8 seconds (cohesion handles intermediate)
         this.rubberBandDistance = 0;         // Current distance from group average
         this.rubberBandThreshold = 100;      // Activation threshold in pixels
         this.rubberBandPending = false;      // Whether waiting for reaction delay
@@ -395,6 +395,11 @@ class Entity {
             return;
         }
 
+        // Don't apply if stats haven't been calculated yet (avgX/avgY would be 0)
+        if (groupStats.entityCount === 0 || groupStats.lastUpdated === 0) {
+            return; // Wait for stats to be populated
+        }
+
         // Calculate distance from group average position
         const dx = groupStats.avgX - this.x;
         const dy = groupStats.avgY - this.y;
@@ -410,13 +415,19 @@ class Entity {
 
         // Check distance threshold
         if (distance > this.rubberBandThreshold) {
+            // Calculate target with random offset to prevent bunching
+            const offsetAngle = Math.random() * Math.PI * 2;
+            const offsetRadius = Math.random() * 30; // Spread 30px around center
+            const targetX = groupStats.avgX + Math.cos(offsetAngle) * offsetRadius;
+            const targetY = groupStats.avgY + Math.sin(offsetAngle) * offsetRadius;
+
             // Start pending with random 0-1s delay
             this.rubberBandPending = true;
             this.rubberBandDelayTimer = 0;
             this.rubberBandDelayDuration = Math.random(); // 0-1 second
             this.rubberBandPendingTarget = {
-                x: groupStats.avgX,
-                y: groupStats.avgY,
+                x: targetX,
+                y: targetY,
                 distance: distance
             };
         } else {
@@ -967,6 +978,15 @@ if (hasLineOfSight) {
     };
 }
 
+// Arrive behavior: decelerate when approaching target
+const arrivalRadius = 40; // Start slowing at 40px
+if (distanceToTarget < arrivalRadius && distanceToTarget > 2) {
+    const arrivalFactor = distanceToTarget / arrivalRadius;
+    // Reduce desired velocity (separation/avoidance still apply at full strength)
+    this.desiredVelocity.x *= arrivalFactor;
+    this.desiredVelocity.y *= arrivalFactor;
+}
+
         // Apply separation force (avoid other entities)
         const separationForce = this.calculateSeparation(allEntities);
         
@@ -979,24 +999,30 @@ const wallRepulsion = this.calculateWallRepulsion();
 // Apply fire repulsion (avoid fires)
 const fireRepulsion = this.calculateFireRepulsion();
 
+// Apply cohesion force (red units stay near group)
+const cohesionForce = this.applyCohesionForce();
+
 // Combine forces - potential field navigation!
 const targetWeight = 1.5; // Pull toward goal (reduced so walls can push back)
 const separationWeight = 1.2; // Avoid other units (increased from 0.8 for more natural spacing)
 const avoidanceWeight = 0.6; // Predict collisions
 const wallRepulsionWeight = 1.1; // Push away from walls (VERY strong - stronger than target!)
 const fireRepulsionWeight = 1.0; // Push away from fires (moderate - less than target attraction)
+const cohesionWeight = 0.3; // Gentle pull toward group (low weight to not fight other forces)
 
 const combinedForce = {
-    x: this.desiredVelocity.x * targetWeight + 
-        separationForce.x * separationWeight + 
+    x: this.desiredVelocity.x * targetWeight +
+        separationForce.x * separationWeight +
         avoidanceForce.x * avoidanceWeight +
         wallRepulsion.x * wallRepulsionWeight +
-        fireRepulsion.x * fireRepulsionWeight,
-    y: this.desiredVelocity.y * targetWeight + 
-        separationForce.y * separationWeight + 
+        fireRepulsion.x * fireRepulsionWeight +
+        cohesionForce.x * cohesionWeight,
+    y: this.desiredVelocity.y * targetWeight +
+        separationForce.y * separationWeight +
         avoidanceForce.y * avoidanceWeight +
         wallRepulsion.y * wallRepulsionWeight +
-        fireRepulsion.y * fireRepulsionWeight
+        fireRepulsion.y * fireRepulsionWeight +
+        cohesionForce.y * cohesionWeight
 };
 
         // Normalize and apply speed limit
@@ -1006,8 +1032,8 @@ const combinedForce = {
             combinedForce.y = (combinedForce.y / forceMag) * this.movement_speed;
         }
 
-        // Smooth velocity transition
-        const smoothing = 0.5;
+        // Smooth velocity transition (0.3 = 70% velocity retention for smoother movement)
+        const smoothing = 0.3;
         this.velocity.x = this.velocity.x * (1 - smoothing) + combinedForce.x * smoothing;
         this.velocity.y = this.velocity.y * (1 - smoothing) + combinedForce.y * smoothing;
 
@@ -2138,6 +2164,43 @@ calculateSeparation(allEntities) {
     }
 
     return { x: steerX, y: steerY };
+}
+
+// Cohesion force: gentle pull toward group center (red faction only)
+applyCohesionForce() {
+    // Only for red faction units in a group
+    if (this.faction !== 'red') return { x: 0, y: 0 };
+    if (this.groupId === null) return { x: 0, y: 0 };
+
+    // Don't apply during priority movement states
+    if (this.isDying || this.isPanicking || this.isRetreating || this.isHealthRetreat) {
+        return { x: 0, y: 0 };
+    }
+
+    // Get group stats from AI group manager
+    if (typeof aiGroupManager === 'undefined') return { x: 0, y: 0 };
+    const groupStats = aiGroupManager.getGroupStats(this.groupId);
+    if (!groupStats) return { x: 0, y: 0 };
+
+    // Don't apply if stats haven't been calculated yet (avgX/avgY would be 0)
+    if (groupStats.entityCount === 0 || groupStats.lastUpdated === 0) {
+        return { x: 0, y: 0 };
+    }
+
+    const dx = groupStats.avgX - this.x;
+    const dy = groupStats.avgY - this.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Only apply outside soft threshold
+    const softThreshold = 50; // Start gentle pull at 50px
+    if (distance < softThreshold) return { x: 0, y: 0 };
+
+    // Very gentle force, scales with distance (max 15% of movement speed)
+    const strength = Math.min((distance - softThreshold) / 300, 0.15);
+    return {
+        x: (dx / distance) * strength * this.movement_speed,
+        y: (dy / distance) * strength * this.movement_speed
+    };
 }
 
 // Collision avoidance: predict and avoid future collisions
