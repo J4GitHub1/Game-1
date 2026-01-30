@@ -1,3 +1,5 @@
+// Add movement circumnavigating tiles in which an explosion recently occurred when AI moving entities
+
 let frameCount = 0;
 let fpsUpdateTime = performance.now();
 let currentFPS = 60;
@@ -1106,6 +1108,7 @@ function gameLoop() {
     leaderHaloManager.updateAll(deltaTime, entityManager.getAllEntities()); // Update leader halos with entity list
     heatmapManager.updateAll(deltaTime, entityManager.entities, cannonManager.cannons, captureObjectiveManager.objectives); // Update heatmap territorial control
     aiGroupManager.updateAll(deltaTime, entityManager, cannonManager, heatmapManager); // Update AI group manager stats
+    aiJobsManager.updateAll(deltaTime, entityManager.entities, cannonManager.cannons, captureObjectiveManager.objectives); // Update AI jobs system
     t1 = performance.now();
     timings['Entities update'] = (t1 - t0).toFixed(2) + 'ms';
 
@@ -1233,6 +1236,7 @@ function gameLoop() {
         heatmapManager.draw(ctx, camera);
         aiGroupManager.draw(ctx, camera);
         captureObjectiveManager.drawRepulsionWaves(ctx, camera);
+        aiJobsManager.draw(ctx, canvas);
     }
 
     // Draw cannons
