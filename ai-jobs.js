@@ -38,12 +38,15 @@ class AIJobsManager {
         // Find top 3 tiles by score
         const topTiles = this.findTopTiles();
 
-        // Create jobs for each top tile
+        // Create jobs for each top tile - any with blue units OR non-red objectives
         this.jobs = [];
         for (const tile of topTiles) {
             const job = new AIJob(tile);
             this.calculateJobStats(job, allEntities, allCannons, allObjectives);
-            this.jobs.push(job);
+            // Create jobs where blue units exist OR non-red objectives exist
+            if (job.blueUnitCount > 0 || job.objectiveCount > 0) {
+                this.jobs.push(job);
+            }
         }
     }
 
@@ -162,8 +165,8 @@ class AIJobsManager {
 
         ctx.save();
 
-        // Calculate panel height and center vertically
-        const panelHeight = 30 + this.jobs.length * 65;
+        // Calculate panel height and center vertically (80px per job to fit assigned groups line)
+        const panelHeight = 30 + this.jobs.length * 80;
         const panelY = (canvas.height - panelHeight) / 2;
 
         // Semi-transparent background for readability
@@ -207,7 +210,35 @@ class AIJobsManager {
                 20, y + 45
             );
 
-            y += 65;
+            // Get assigned groups from coordinator (if available)
+            if (typeof aiAssignmentCoordinator !== 'undefined') {
+                const assignmentInfo = aiAssignmentCoordinator.getAssignedGroupsForJob(
+                    job.centerTile.gridX,
+                    job.centerTile.gridY
+                );
+
+                if (assignmentInfo.groups.length > 0) {
+                    // Build group list with inFight status
+                    const groupStrings = assignmentInfo.groups.map(gId => {
+                        const inFight = assignmentInfo.inFightGroups.includes(gId);
+                        return inFight ? `G${gId}*` : `G${gId}`;
+                    });
+
+                    ctx.fillStyle = '#90EE90'; // Light green for assigned groups
+                    ctx.fillText(
+                        `Assigned: [${groupStrings.join(', ')}] (${assignmentInfo.status})`,
+                        20, y + 60
+                    );
+                } else {
+                    ctx.fillStyle = '#888888'; // Gray for unassigned
+                    ctx.fillText(
+                        `Assigned: none`,
+                        20, y + 60
+                    );
+                }
+            }
+
+            y += 80;
         }
 
         ctx.restore();

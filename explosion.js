@@ -62,6 +62,11 @@ class Explosion {
     }
 
     applyEffects(entities, fireManager) {
+        // Record this explosion on the heatmap tile
+        if (typeof heatmapManager !== 'undefined') {
+            heatmapManager.recordExplosion(this.x, this.y);
+        }
+
         // Apply damage, distress, repulsion, and accuracy debuff to entities
         for (const entity of entities) {
             if (entity.isDying) continue;

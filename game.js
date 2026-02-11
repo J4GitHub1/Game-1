@@ -1109,6 +1109,7 @@ function gameLoop() {
     heatmapManager.updateAll(deltaTime, entityManager.entities, cannonManager.cannons, captureObjectiveManager.objectives); // Update heatmap territorial control
     aiGroupManager.updateAll(deltaTime, entityManager, cannonManager, heatmapManager); // Update AI group manager stats
     aiJobsManager.updateAll(deltaTime, entityManager.entities, cannonManager.cannons, captureObjectiveManager.objectives); // Update AI jobs system
+    aiAssignmentCoordinator.updateAll(deltaTime, entityManager); // Update AI assignment coordinator (rally & muster system)
     t1 = performance.now();
     timings['Entities update'] = (t1 - t0).toFixed(2) + 'ms';
 
@@ -1235,8 +1236,28 @@ function gameLoop() {
     if (showHeatmap) {
         heatmapManager.draw(ctx, camera);
         aiGroupManager.draw(ctx, camera);
+        aiAssignmentCoordinator.draw(ctx, camera); // Draw rally points and advance arrows
         captureObjectiveManager.drawRepulsionWaves(ctx, camera);
         aiJobsManager.draw(ctx, canvas);
+
+        // Show tile coordinates at cursor position
+        if (lastMouseX && lastMouseY && heatmapManager.tileWidth > 0) {
+            const gridX = Math.floor(lastMouseX / heatmapManager.tileWidth);
+            const gridY = Math.floor(lastMouseY / heatmapManager.tileHeight);
+            if (gridX >= 0 && gridX < heatmapManager.gridSize && gridY >= 0 && gridY < heatmapManager.gridSize) {
+                const screenX = lastMouseX - camera.x;
+                const screenY = lastMouseY - camera.y;
+                ctx.save();
+                ctx.font = '14px monospace';
+                ctx.fillStyle = 'white';
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 3;
+                const label = `${gridX}/${gridY}`;
+                ctx.strokeText(label, screenX + 16, screenY - 8);
+                ctx.fillText(label, screenX + 16, screenY - 8);
+                ctx.restore();
+            }
+        }
     }
 
     // Draw cannons
@@ -2447,6 +2468,24 @@ windSpeedSlider.addEventListener('input', (e) => {
     windSpeedValue.textContent = windSpeed.toFixed(2);
     console.log(`Wind speed: ${windSpeed.toFixed(2)}`);
 });
+
+// AI Coordinator checkbox toggles
+const aiCoordinatorCheckbox = document.getElementById('aiCoordinatorCheckbox');
+const aiCoordinatorDebugCheckbox = document.getElementById('aiCoordinatorDebugCheckbox');
+
+if (aiCoordinatorCheckbox) {
+    aiCoordinatorCheckbox.addEventListener('change', (e) => {
+        aiAssignmentCoordinator.enabled = e.target.checked;
+        console.log(`AI Strategic Thinking: ${e.target.checked ? 'ENABLED' : 'DISABLED'}`);
+    });
+}
+
+if (aiCoordinatorDebugCheckbox) {
+    aiCoordinatorDebugCheckbox.addEventListener('change', (e) => {
+        aiAssignmentCoordinator.debugEnabled = e.target.checked;
+        console.log(`AI Coordinator Debug: ${e.target.checked ? 'ON' : 'OFF'}`);
+    });
+}
 
 createGroupBtn.addEventListener('click', () => {
     const name = groupNameInput.value.trim();

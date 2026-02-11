@@ -30,6 +30,9 @@ class HeatmapTile {
 
         // Danger zone: immediate neighbor of tile with blue units (but not if this tile has blue units)
         this.dangerZone = false;
+
+        // Explosion tracking: timestamps (in seconds, using a running clock) of recent explosions
+        this.explosionTimestamps = [];
     }
 
     // Check if a point (x, y) is inside this tile
@@ -46,6 +49,21 @@ class HeatmapTile {
                entity.x < this.worldX + this.tileWidth &&
                entity.y >= this.worldY &&
                entity.y < this.worldY + this.tileHeight;
+    }
+
+    // Record an explosion on this tile at the given game time (seconds)
+    recordExplosion(gameTime) {
+        this.explosionTimestamps.push(gameTime);
+    }
+
+    // Get number of explosions in the last 60 seconds, pruning old entries
+    getRecentExplosionCount(gameTime) {
+        const cutoff = gameTime - 60;
+        // Remove timestamps older than 60 seconds
+        while (this.explosionTimestamps.length > 0 && this.explosionTimestamps[0] <= cutoff) {
+            this.explosionTimestamps.shift();
+        }
+        return this.explosionTimestamps.length;
     }
 
     // Find the nearest entity from tile center
@@ -565,6 +583,22 @@ class Heatmap {
             }
         }
         return neighbors;
+    }
+
+    // Get the tile containing a world position (x, y)
+    getTileAtWorldPos(x, y) {
+        if (this.tileWidth === 0 || this.tileHeight === 0) return null;
+        const gridX = Math.floor(x / this.tileWidth);
+        const gridY = Math.floor(y / this.tileHeight);
+        return this.getTile(gridX, gridY);
+    }
+
+    // Record an explosion at a world position
+    recordExplosion(x, y) {
+        const tile = this.getTileAtWorldPos(x, y);
+        if (tile) {
+            tile.recordExplosion(performance.now() / 1000);
+        }
     }
 
     // Get tiles at Chebyshev distance [minDist, maxDist] from a grid position
